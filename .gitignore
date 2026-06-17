@@ -13,6 +13,8 @@ dist/
 build/
 out/
 */coverage/
+.next/
+next-env.d.ts
 
 # IDE
 .vscode/
