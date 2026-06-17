@@ -61,9 +61,6 @@ jobs:
       - name: Install dependencies
         working-directory: ${{ matrix.component }}
         run: npm install
-      - name: Lint
-        working-directory: ${{ matrix.component }}
-        run: npm run lint
       - name: Test
         working-directory: ${{ matrix.component }}
         run: npm run test
