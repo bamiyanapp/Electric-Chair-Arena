@@ -35,14 +35,14 @@ jobs:
       - name: Validate current commit (last commit)
         if: github.event_name == 'push'
         run: |
-          npm run lint || true
+          npm run lint
       - name: Validate PR commits
         if: github.event_name == 'pull_request'
         run: |
-          npm run lint || true
+          npm run lint
 
   frontend-test:
-    # needs: commitlint
+    needs: commitlint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -67,7 +67,7 @@ jobs:
         run: npm run build
 
   backend-test:
-    # needs: commitlint
+    needs: frontend-test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -89,7 +89,7 @@ jobs:
         run: npm run test
 
   merge:
-    needs: [frontend-test, backend-test]
+    needs: backend-test
     if: github.event_name == 'pull_request' && success()
     runs-on: ubuntu-latest
     steps:
