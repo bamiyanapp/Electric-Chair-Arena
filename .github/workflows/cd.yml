@@ -1,0 +1,250 @@
+name: CD
+run-name: CD ${{ github.event.head_commit.message }}
+
+on:
+  push:
+    branches:
+      - release
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release
+          fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/*"
+          cache: "npm"
+      - name: Install dependencies
+        run: npm install
+  
+      - name: Fetch tags
+        run: |
+          git fetch origin --tags --prune
+          git fetch origin
+          git log origin/main --oneline -5
+          git log origin/release --oneline -5
+          git rev-parse release
+          git rev-parse origin/release
+
+    # Release が Main の最新と同じか確認
+      - name: Sync check
+        id: sync
+        run: |
+          git fetch origin main
+          MAIN_HEAD=$(git rev-parse origin/main)
+          RELEASE_HEAD=$(git rev-parse release)
+          echo "MAIN_HEAD=$MAIN_HEAD" >> $GITHUB_ENV
+          echo "RELEASE_HEAD=$RELEASE_HEAD" >> $GITHUB_ENV
+          if [ "$MAIN_HEAD" = "$RELEASE_HEAD" ]; then
+            echo "Release is up-to-date with main"
+            echo "up_to_date=true" >> $GITHUB_ENV
+          else
+            echo "Release needs to merge main"
+            echo "up_to_date=false" >> $GITHUB_ENV
+          fi
+      # 必要ならマージ
+      - name: Merge main into release if needed
+        if: env.up_to_date == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-ff origin/main -m "Chore: Merge main into release"
+          git push origin release
+      # Release 上の HEAD に既にタグがあるか確認
+      - name: Check for existing tags
+        id: tag_check
+        run: |
+          TAGS=$(git tag --contains HEAD | grep "^v" || true)
+          if [ -n "$TAGS" ]; then
+            echo "HEAD already has tags: $TAGS"
+            echo "tag_exists=true" >> $GITHUB_ENV
+          else
+            echo "No tags on HEAD"
+            echo "tag_exists=false" >> $GITHUB_ENV
+          fi
+
+      - name: Skip if release branch has no new commits
+        run: |
+          if git tag --contains HEAD | grep -q "v"; then
+            echo "Release branch already contains latest tag(s). Skipping release."
+            exit 0
+          fi
+      - name: Checkout release branch
+        run: git checkout release
+      - name: Merge main into release
+        run: |
+          # Fast-forward マージ
+          git merge --ff-only origin/main || echo "Already up to date"
+      - name: Skip if no new commits
+        run: |
+          if git tag --contains HEAD | grep -q "v"; then
+            echo "Release branch already contains latest tag(s). Skipping release."
+            exit 0
+          fi
+      - name: Dry-run Semantic-release
+        id: dryrun
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT_TAG=$(npx semantic-release --dry-run | grep "The next release version is" | awk '{print $6}')
+          echo "NEXT_TAG=$NEXT_TAG" >> $GITHUB_ENV
+      - name: Check tag existence
+        run: |
+          if git rev-parse "refs/tags/$NEXT_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEXT_TAG already exists. Skipping release."
+            exit 0
+          fi
+
+      # デバッグ: Release ブランチの情報を出力
+      - name: Debug Release branch
+        run: |
+          echo "===== RELEASE BRANCH ====="
+          echo "Branch: $(git branch --show-current)"
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "Tags containing HEAD:"
+          git tag --contains HEAD
+          echo "All tags:"
+          git fetch --tags origin
+          git tag -l | grep v1.1
+    
+      # デバッグ: Main ブランチの情報も確認
+      - name: Debug Main branch
+        run: |
+          echo "===== MAIN BRANCH ====="
+          git fetch origin main --depth=1
+          git checkout origin/main
+          echo "Branch: $(git branch --show-current)"
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "Tags containing HEAD:"
+          git tag --contains HEAD
+          echo "All tags:"
+          git fetch --tags origin
+          git tag -l | grep v1.1
+          # Release ブランチに戻す
+          git checkout release
+      
+      - name: Check for tag conflicts
+        id: check-tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # semantic-release が付ける予定の次バージョンを確認
+          NEXT_TAG=$(npx semantic-release --dry-run | grep "The next release version is" | awk '{print $6}')
+          echo "NEXT_TAG=$NEXT_TAG" >> $GITHUB_ENV
+          # 既存タグと重複していないか確認
+          if git rev-parse "refs/tags/$NEXT_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEXT_TAG already exists. Exiting."
+            exit 0
+          fi
+          git fetch --tags origin
+          git tag --contains HEAD
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          # DEBUG: semantic-release:*
+        run: |
+          git fetch --tags --force
+          NEXT_VERSION=$(npx semantic-release --dry-run | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "Next version: $NEXT_VERSION"
+          # ★ リモートタグチェック（これが重要）
+          if git ls-remote --tags origin | grep -q "refs/tags/v$NEXT_VERSION$"; then
+            echo "Tag v$NEXT_VERSION already exists on remote. Skipping release."
+            exit 0
+          fi      
+          npx semantic-release
+      - name: Create PR from release to main
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          base: main
+          branch: sync-release-to-main # 実際に作成されるブランチ名
+          title: "Sync release branch into main"
+          body: "Automated PR to sync release changes into main."
+          draft: false
+          commit-message: "chore: sync release branch into main [skip ci]"
+  build-and-deploy-frontend:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release # Checkout the release branch for deployment
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Show GitHub Pages URL
+        run: |
+          echo "Pages URL: ${{ steps.deployment.outputs.page_url }}"
+
+  deploy-backend:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release # Checkout the release branch for deployment
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+      - name: 🚀 Deploy Backend (Serverless Framework)
+        working-directory: backend
+        run: npx serverless deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: 🌱 Seed Database
+        working-directory: backend
+        run: node seed.js
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

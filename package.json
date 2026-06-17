@@ -1,0 +1,12 @@
+{
+  "name": "hanko-master-kentei",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "lint": "npm run lint -w frontend && npm run lint -w backend",
+    "test": "npm run test -w frontend && npm run test -w backend"
+  }
+}
