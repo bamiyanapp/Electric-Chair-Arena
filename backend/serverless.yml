@@ -1,0 +1,39 @@
+service: hanko-master-kentei-backend
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-northeast-1
+
+functions:
+  judgeHanko:
+    handler: handler.judgeHanko
+    events:
+      - http:
+          path: judge
+          method: post
+  getStage:
+    handler: handler.getStage
+    events:
+      - http:
+          path: stage/{id}
+          method: get
+  updateProgress:
+    handler: handler.updateProgress
+    events:
+      - http:
+          path: progress
+          method: post
+
+plugins:
+  - serverless-offline
+  - serverless-dynamodb-local
+
+custom:
+  dynamodb:
+    stages:
+      - dev
+    start:
+      port: 8000
+      inMemory: true
+      migrate: true

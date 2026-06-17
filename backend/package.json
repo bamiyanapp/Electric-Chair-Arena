@@ -1,0 +1,11 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "devDependencies": {
+    "serverless": "^4.37.0",
+    "serverless-dynamodb-local": "^0.2.40",
+    "serverless-offline": "^14.7.3"
+  }
+}
