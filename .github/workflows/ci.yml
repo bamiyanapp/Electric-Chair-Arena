@@ -41,6 +41,27 @@ jobs:
         run: |
           npm run lint
 
+  frontend-lint:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            frontend/package.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
   frontend-test:
     needs: commitlint
     runs-on: ubuntu-latest
@@ -83,6 +104,27 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+  backend-lint:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            backend/package.json
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
   backend-test:
     needs: commitlint
     runs-on: ubuntu-latest
@@ -105,7 +147,7 @@ jobs:
         run: npm run test
 
   merge:
-    needs: [frontend-test, frontend-build, backend-test]
+    needs: [frontend-lint, frontend-test, frontend-build, backend-lint, backend-test]
     if: github.event_name == 'pull_request' && success()
     runs-on: ubuntu-latest
     steps:
