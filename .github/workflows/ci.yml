@@ -41,12 +41,9 @@ jobs:
         run: |
           npm run lint
 
-  test:
+  frontend-lint:
     needs: commitlint
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        component: [frontend, backend]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,23 +54,100 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package.json
-            ${{ matrix.component }}/package.json
+            frontend/package.json
       - name: Install dependencies
-        working-directory: ${{ matrix.component }}
+        working-directory: frontend
         run: npm install
       - name: Lint
-        working-directory: ${{ matrix.component }}
+        working-directory: frontend
         run: npm run lint
+
+  frontend-test:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            frontend/package.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
       - name: Test
-        working-directory: ${{ matrix.component }}
+        working-directory: frontend
         run: npm run test
+
+  frontend-build:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            frontend/package.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
       - name: Build
-        if: matrix.component == 'frontend'
-        working-directory: ${{ matrix.component }}
+        working-directory: frontend
         run: npm run build
 
+  backend-lint:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            backend/package.json
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
+  backend-test:
+    needs: commitlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package.json
+            backend/package.json
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+      - name: Test
+        working-directory: backend
+        run: npm run test
+
   merge:
-    needs: [test]
+    needs: [frontend-lint, frontend-test, frontend-build, backend-lint, backend-test]
     if: github.event_name == 'pull_request' && success()
     runs-on: ubuntu-latest
     steps:
