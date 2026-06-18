@@ -1,5 +1,5 @@
-name: CI
-run-name: CI ${{ github.event.head_commit.message || github.event.pull_request.title }}
+name: CI/CD
+run-name: CI/CD ${{ github.event.head_commit.message || github.event.pull_request.title }}
 
 on:
   push:
@@ -12,6 +12,8 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
   commitlint:
@@ -186,3 +188,135 @@ jobs:
                 console.error(`Failed to delete branch ${branchName}:`, error.message);
               }
             }
+
+  release:
+    needs: [merge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Sync main to release branch
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin
+          # releaseブランチをチェックアウト、または作成
+          git checkout release || git checkout -b release
+          git reset --hard origin/main
+          git push origin release --force --tags
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install
+      - name: Dry-run Semantic-release
+        id: dryrun
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          NEXT_TAG=$(npx semantic-release --dry-run | grep "The next release version is" | awk '{print $6}')
+          echo "NEXT_TAG=$NEXT_TAG" >> $GITHUB_ENV
+      - name: Check tag existence
+        run: |
+          if git rev-parse "refs/tags/$NEXT_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEXT_TAG already exists. Skipping release."
+            exit 0
+          fi
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_TOKEN != '' && secrets.BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --tags --force
+          NEXT_VERSION=$(npx semantic-release --dry-run | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "Next version: $NEXT_VERSION"
+          if git ls-remote --tags origin | grep -q "refs/tags/v$NEXT_VERSION$"; then
+            echo "Tag v$NEXT_VERSION already exists on remote. Skipping release."
+            exit 0
+          fi      
+          npx semantic-release
+      - name: Create PR from release to main
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.BOT_TOKEN }}
+          base: main
+          branch: sync-release-to-main
+          title: "Sync release branch into main"
+          body: "Automated PR to sync release changes into main."
+          draft: false
+          commit-message: "chore: sync release branch into main [skip ci]"
+
+  build-and-deploy-frontend:
+    needs: release
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Show GitHub Pages URL
+        run: |
+          echo "Pages URL: ${{ steps.deployment.outputs.page_url }}"
+
+  deploy-backend:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: release
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+      - name: 🚀 Deploy Backend (Serverless Framework)
+        working-directory: backend
+        run: npx serverless deploy
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: 🌱 Seed Database
+        working-directory: backend
+        run: node seed.js
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
