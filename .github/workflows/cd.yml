@@ -1,10 +1,11 @@
 name: CD
-run-name: CD ${{ github.event.head_commit.message }}
+run-name: CD ${{ github.event.pull_request.title || github.event.head_commit.message }}
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types:
+      - closed
+
 permissions:
   contents: write
   issues: write
@@ -19,6 +20,7 @@ concurrency:
 jobs:
   release:
     name: Release
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
