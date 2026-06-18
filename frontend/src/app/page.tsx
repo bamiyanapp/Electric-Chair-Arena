@@ -118,7 +118,7 @@ export default function Home() {
           {/* 稟議書風のプレビュー領域 */}
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 bg-white mb-6 relative overflow-hidden min-h-[250px] flex flex-col justify-between">
             <div className="text-center">
-              <h3 className="text-xl font-bold border-b-2 border-double border-gray-800 pb-2 inline-block">
+              <h3 className="text-xl font-bold border-b-2 border-double border-gray-800 pb-2 inline-block text-gray-800">
                 パソコン購入稟議書
               </h3>
             </div>
@@ -136,7 +136,7 @@ export default function Home() {
             <div className="flex justify-end mt-4">
               <div className="flex border border-gray-800 text-center">
                 <div className="w-20 border-r border-gray-800">
-                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800">
+                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800 text-gray-800">
                     部長
                   </div>
                   <div className="h-16 flex items-center justify-center text-gray-300 text-xs select-none">
@@ -144,7 +144,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="w-20 border-r border-gray-800 bg-red-50/10 relative">
-                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800">
+                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800 text-gray-800">
                     課長
                   </div>
                   <div className="h-16 flex items-center justify-center">
@@ -165,7 +165,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="w-20">
-                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800">
+                  <div className="bg-gray-100 text-xs py-1 border-b border-gray-800 text-gray-800">
                     起案者
                   </div>
                   <div className="h-16 flex items-center justify-center">
@@ -216,7 +216,7 @@ export default function Home() {
                   }}
                   className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-red-600"
                 />
-                <div className="flex justify-between text-xs text-gray-400 px-1 mt-1">
+                <div className="flex justify-between text-xs text-gray-600 px-1 mt-1">
                   <span>← 左に深くお辞儀 (-90度)</span>
                   <span>真っ直ぐ (0度)</span>
                   <span>右にのけぞる (+90度) →</span>
