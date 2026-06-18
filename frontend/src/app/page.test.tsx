@@ -1,23 +1,60 @@
-import { describe, it, expect, vi } from 'vitest';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Home, { judgeHankoAngle } from './page';
 import React from 'react';
 
-// useState, useEffectを使用するクライアントコンポーネントを直接テストするため、モック化します。
+// window オブジェクトのモック
+const mockPushState = vi.fn();
+const mockLocation = {
+  pathname: '/test',
+  search: '',
+};
+
+global.window = {
+  location: mockLocation,
+  history: {
+    pushState: mockPushState,
+  },
+} as any;
+
+// グローバルな状態管理（テストごとに初期化）
+let stateValues: any[] = [];
+let stateSetters: any[] = [];
+let useStateCallCount = 0;
+let registeredEffects: (() => void)[] = [];
+
+// useState & useEffect のカスタムモック
 vi.mock('react', async () => {
   const actual = await vi.importActual<typeof import('react')>('react');
   return {
     ...actual,
-    useState: (initialValue: unknown) => {
-      return [initialValue, vi.fn()];
+    useState: (initialValue: any) => {
+      const index = useStateCallCount;
+      useStateCallCount++;
+
+      // 初期値の格納
+      if (stateValues[index] === undefined) {
+        stateValues[index] = initialValue;
+      }
+
+      const setter = (newValue: any) => {
+        if (typeof newValue === 'function') {
+          stateValues[index] = newValue(stateValues[index]);
+        } else {
+          stateValues[index] = newValue;
+        }
+        stateSetters[index](newValue);
+      };
+
+      return [stateValues[index], setter];
     },
     useEffect: (callback: () => void) => {
-      // テスト環境でuseEffectの即時実行やエラー回避のためにモックします
+      registeredEffects.push(callback);
     },
   };
 });
 
-// ReactElementツリーを再帰的に走査して、指定したタイプの要素を探すヘルパー関数
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// ReactElementツリーを再帰的に走査して、指定した条件に合う要素を探すヘルパー
 function findType(element: any, type: string): any {
   if (!element) return undefined;
   if (element.type === type) return element;
@@ -34,29 +71,160 @@ function findType(element: any, type: string): any {
   return undefined;
 }
 
-describe('Home Component', () => {
-  it('should render main wrapper and title', () => {
+// 要素内のすべてのテキストを取得するヘルパー
+function getElementText(element: any): string {
+  if (!element) return '';
+  if (typeof element === 'string') return element;
+  if (typeof element === 'number') return String(element);
+  if (Array.isArray(element)) return element.map(getElementText).join('');
+  if (element.props && element.props.children) {
+    return getElementText(element.props.children);
+  }
+  return '';
+}
+
+// テキスト内容から要素を探すヘルパー
+function findByText(element: any, text: string): any {
+  if (!element) return undefined;
+  if (typeof element === 'string' || typeof element === 'number') return undefined;
+
+  const elementText = getElementText(element);
+  if (elementText.includes(text)) {
+    // まずは子要素にマッチするReact要素があるか探す
+    if (element.props && element.props.children) {
+      if (Array.isArray(element.props.children)) {
+        for (const child of element.props.children) {
+          const found = findByText(child, text);
+          if (found) return found;
+        }
+      } else {
+        const found = findByText(element.props.children, text);
+        if (found) return found;
+      }
+    }
+    // 子要素にマッチするReact要素がなければ、自分自身を返す
+    return element;
+  }
+  return undefined;
+}
+
+describe('Home Component Integration', () => {
+  beforeEach(() => {
+    useStateCallCount = 0;
+    stateValues = [];
+    stateSetters = [
+      vi.fn(), // isStarted
+      vi.fn(), // angle
+      vi.fn(), // judged
+      vi.fn(), // resultMessage
+      vi.fn(), // isPassed
+    ];
+    registeredEffects = [];
+    mockLocation.search = '';
+    mockPushState.mockClear();
+  });
+
+  it('should render initial state and check transitions', () => {
+    // 1. 初期レンダリング
+    useStateCallCount = 0;
     const result = Home() as React.ReactElement;
     expect(result.type).toBe('main');
-    
-    // 子要素を探索してタイトルを確認するユニットテスト
-    const h1 = findType(result, 'h1') as React.ReactElement<{ children: string }> | undefined;
-    expect(h1).toBeDefined();
-    expect(h1?.props.children).toBe('ハンコマスター検定');
+
+    // 「検定を開始する」ボタンがあることを確認
+    const startButton = findByText(result, '検定を開始する');
+    expect(startButton).toBeDefined();
+
+    // 2. handleStartの実行
+    startButton.props.onClick();
+    expect(stateSetters[0]).toHaveBeenCalledWith(true); // setIsStarted(true)
+    expect(stateSetters[1]).toHaveBeenCalledWith(0);    // setAngle(0)
+    expect(stateSetters[2]).toHaveBeenCalledWith(false); // setJudged(false)
   });
 
-  it('should render description paragraph', () => {
-    const result = Home() as React.ReactElement;
-    const p = findType(result, 'p') as React.ReactElement<{ children: string }> | undefined;
-    expect(p).toBeDefined();
-    expect(p?.props.children).toContain('誠意ある捺印こそが、社会人の基本です。');
+  it('should restore state from URL params in useEffect', () => {
+    // URLパラメータがある状態をシミュレート
+    mockLocation.search = '?started=true&angle=-20&judged=true';
+    useStateCallCount = 0;
+    Home();
+
+    // 登録されたuseEffectをすべて実行する
+    registeredEffects.forEach((effect) => effect());
+
+    expect(stateSetters[0]).toHaveBeenCalledWith(true); // setIsStarted(true)
+    expect(stateSetters[1]).toHaveBeenCalledWith(-20);  // setAngle(-20)
+    expect(stateSetters[2]).toHaveBeenCalledWith(true);  // setJudged(true)
   });
 
-  it('should render start button', () => {
+  it('should render game state when isStarted is true', () => {
+    // isStarted=true, angle=-20, judged=false の状態をセット
+    stateValues = [true, -20, false, '', false];
+
+    useStateCallCount = 0;
     const result = Home() as React.ReactElement;
-    const button = findType(result, 'button') as React.ReactElement<{ children: string }> | undefined;
-    expect(button).toBeDefined();
-    expect(button?.props.children).toBe('検定を開始する');
+
+    // ミッションの説明などがあることを確認
+    const mission = findByText(result, '稟議書（パソコン購入申請）に捺印しなさい。');
+    expect(mission).toBeDefined();
+
+    // スライダーの変更テスト
+    const input = findType(result, 'input');
+    expect(input).toBeDefined();
+    input.props.onChange({ target: { value: '-25' } });
+    expect(stateSetters[1]).toHaveBeenCalledWith(-25); // setAngle(-25)
+
+    // 「これで捺印を申請する」ボタンのテスト
+    const judgeButton = findByText(result, 'これで捺印を申請する');
+    expect(judgeButton).toBeDefined();
+    judgeButton.props.onClick();
+    expect(stateSetters[2]).toHaveBeenCalledWith(true); // setJudged(true)
+  });
+
+  it('should render result state when judged is true', () => {
+    // isStarted=true, angle=-20, judged=true, resultMessage='🎉 合格！', isPassed=true の状態をセット
+    stateValues = [true, -20, true, '【合格】...', true];
+
+    useStateCallCount = 0;
+    const result = Home() as React.ReactElement;
+
+    // 合格表示
+    const passedText = findByText(result, '🎉 合格！');
+    expect(passedText).toBeDefined();
+
+    // 「もう一度調整する」ボタンのテスト
+    const resetButton = findByText(result, 'もう一度調整する');
+    expect(resetButton).toBeDefined();
+    resetButton.props.onClick();
+    expect(stateSetters[1]).toHaveBeenCalledWith(0); // setAngle(0)
+    expect(stateSetters[2]).toHaveBeenCalledWith(false); // setJudged(false)
+
+    // 「メイン画面へ戻る」ボタンのテスト
+    const backButton = findByText(result, 'メイン画面へ戻る');
+    expect(backButton).toBeDefined();
+    backButton.props.onClick();
+    expect(stateSetters[0]).toHaveBeenCalledWith(false); // setIsStarted(false)
+  });
+
+  it('should render result state when judged is true and isPassed is false', () => {
+    // isStarted=true, angle=0, judged=true, resultMessage='【差し戻し】...', isPassed=false の状態をセット
+    stateValues = [true, 0, true, '【差し戻し】...', false];
+
+    useStateCallCount = 0;
+    const result = Home() as React.ReactElement;
+
+    // 差し戻し表示
+    const failedText = findByText(result, '❌ 差し戻し！');
+    expect(failedText).toBeDefined();
+  });
+
+  it('should trigger updateUrl in handleBackToTop on the page header', () => {
+    stateValues = [true, -20, false, '', false];
+    useStateCallCount = 0;
+    const result = Home() as React.ReactElement;
+
+    const backButton = findByText(result, '戻る');
+    expect(backButton).toBeDefined();
+    backButton.props.onClick();
+    expect(stateSetters[0]).toHaveBeenCalledWith(false);
   });
 });
 
