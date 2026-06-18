@@ -40,9 +40,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package.json
-            frontend/package.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         working-directory: frontend
         run: npm install
@@ -61,9 +59,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package.json
-            frontend/package.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         working-directory: frontend
         run: npm install
@@ -82,9 +78,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package.json
-            frontend/package.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         working-directory: frontend
         run: npm install
@@ -103,9 +97,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package.json
-            backend/package.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         working-directory: backend
         run: npm install
@@ -124,9 +116,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package.json
-            backend/package.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         working-directory: backend
         run: npm install
