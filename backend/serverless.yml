@@ -1,5 +1,7 @@
 service: hanko-master-kentei-backend
 
+frameworkVersion: '3'
+
 provider:
   name: aws
   runtime: nodejs18.x
