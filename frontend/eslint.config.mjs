@@ -5,6 +5,9 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    ignores: [".next/**", "dist/**", "node_modules/**"],
+  },
+  {
     rules: {
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": "off",
