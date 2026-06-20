@@ -32,6 +32,12 @@ functions:
       - http:
           path: get-leaderboard
           method: get
+  getAiMove:
+    handler: handler.getAiMove
+    events:
+      - http:
+          path: ai-move
+          method: post
 
 plugins:
   - serverless-offline

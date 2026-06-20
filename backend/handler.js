@@ -82,6 +82,35 @@ module.exports.getLeaderboard = async (event) => {
   };
 };
 
+module.exports.getAiMove = async (event) => {
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { aiPlayerId, role, remainingChairs, opponentShocks } = body;
+
+    if (!aiPlayerId || !role || !remainingChairs) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+        body: JSON.stringify({ error: 'Missing parameters' }),
+      };
+    }
+
+    const move = getAiMove(aiPlayerId, role, remainingChairs, opponentShocks || 0);
+
+    return {
+      statusCode: 200,
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+      body: JSON.stringify(move),
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+      body: JSON.stringify({ error: error.message }),
+    };
+  }
+};
+
 module.exports.getMatchResult = async (event) => {
   const params = event.queryStringParameters || {};
   const { matchId } = params;
