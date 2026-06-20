@@ -5,7 +5,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: [".next/**", "dist/**", "out/**", "node_modules/**"],
+    ignores: [".next/**", "dist/**", "out/**", "node_modules/**", "postcss.config.js"],
   },
   {
     rules: {
