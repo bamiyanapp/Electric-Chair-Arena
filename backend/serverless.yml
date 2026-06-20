@@ -1,4 +1,4 @@
-service: hanko-master-kentei-backend
+service: electric-chair-arena-backend
 
 frameworkVersion: '3'
 
@@ -8,23 +8,23 @@ provider:
   region: ap-northeast-1
 
 functions:
-  judgeHanko:
-    handler: handler.judgeHanko
+  getPlayers:
+    handler: handler.getPlayers
     events:
       - http:
-          path: judge
-          method: post
-  getStage:
-    handler: handler.getStage
-    events:
-      - http:
-          path: stage/{id}
+          path: players
           method: get
-  updateProgress:
-    handler: handler.updateProgress
+  getMatches:
+    handler: handler.getMatches
     events:
       - http:
-          path: progress
+          path: matches
+          method: get
+  simulateMatch:
+    handler: handler.simulateMatch
+    events:
+      - http:
+          path: simulate
           method: post
 
 plugins:
