@@ -1,36 +1,51 @@
-# データベース設計 (DynamoDB)
+# データベース設計 (DynamoDB / SQLite)
 
 ## 1. テーブル設計
 
-### 1.1 Users テーブル
-ユーザーのゲーム進捗を管理する。
+### 1.1 Players (AI Models) テーブル
+対戦相手となるAIモデルの定義、基本戦績、および学習用パラメーターを管理する。
 
-- **PK**: `userId` (String) - ユーザー識別子
+- **PK**: `playerId` (String) - AIモデルの一識別子
 - **Attributes**:
-  - `currentStage` (Number): 現在挑戦中のステージID
-  - `totalScore` (Number): 累計スコア（誠意スコアなど）
+  - `name` (String): AIモデル名 (例: "カウンティングAI")
+  - `type` (String): モデルのタイプ (`random`, `cautious`, `aggressive`, `smart`, `learning`)
+  - `description` (String): AIの特徴や戦術の説明
+  - `rating` (Number): 現在のELOレーティング (初期値1500、学習と戦績に応じて変動)
+  - `winCount` (Number): 人間プレイヤーに対する勝利数
+  - `lossCount` (Number): 人間プレイヤーに対する敗北数
+  - `weights` (Map / List): 学習用パラメーター
+    - 各椅子(1〜12)の設置確率の重み付け
+    - 各椅子(1〜12)の選択確率の重み付け
   - `updatedAt` (String): ISO8601形式の更新日時
 
-### 1.2 Stages テーブル
-各ステージの定義とマナー（ルール）を管理する。
+### 1.2 Matches テーブル
+人間とAIモデルの各対戦結果および詳細な行動・学習ログを保持する。
 
-- **PK**: `stageId` (Number) - ステージ番号
+- **PK**: `matchId` (String) - 対戦の一識別子 (UUID)
 - **Attributes**:
-  - `title` (String): ステージ名 (例: "課長承認")
-  - `approver` (String): 承認者名
-  - `rules` (Map): 判定基準 (角度、位置、濃さなどの許容範囲)
-  - `messages` (List): 差し戻し時のランダムメッセージ集
-
-### 1.3 Scores テーブル (将来)
-ハイスコアランキング用のデータ。
-
-- **PK**: `userId` (String)
-- **SK**: `stageId` (Number)
-- **Attributes**:
-  - `clearTime` (Number): クリアまでにかかった時間（秒）
-  - `hankoState` (Map): クリア時の捺印データ（座標、回転）
+  - `player1Id` (String): プレイヤー1のID（人間、もしくは先攻プレイヤー。例: "human"）
+  - `player2Id` (String): プレイヤー2のID（対戦相手AIの `playerId`）
+  - `scores` (Map): 最終得点
+    - `p1` (Number): プレイヤー1の得点
+    - `p2` (Number): プレイヤー2の得点
+  - `shocks` (Map): 最終感電回数
+    - `p1` (Number): プレイヤー1の感電回数
+    - `p2` (Number): プレイヤー2の感電回数
+  - `winner` (String): 勝利プレイヤーの名前、またはID
+  - `ratingDiff` (Number): この試合で変動したAIモデルのレーティング差分
+  - `logs` (List of Map): ターンごとの詳細履歴（AIの学習元データ）
+    - `turn` (Number): ターン数
+    - `setter` (String): 電流設置者名
+    - `chooser` (String): 椅子選択者名
+    - `shockedChairs` (List of Number): 設置された椅子の番号
+    - `chosenChair` (Number): 選択された椅子の番号
+    - `isShocked` (Boolean): 感電したかどうか
+    - `scoreGained` (Number): 獲得したスコア
+    - `remainingChairs` (List of Number): そのターン時点の残り椅子のリスト
+  - `createdAt` (String): ISO8601形式の対戦日時
 
 ## 2. アクセスパターン
-1. **ユーザー進捗取得**: `GetItem` from `Users` where `userId` = ?
-2. **ステージ情報取得**: `GetItem` from `Stages` where `stageId` = ?
-3. **進捗更新**: `UpdateItem` in `Users` (increment `currentStage`)
+1. **AIモデル一覧の取得**: `Scan` (またはレーティング順インデックスによる `Query`)
+2. **特定のAIモデル詳細/重みの取得**: `GetItem` from `Players` where `playerId` = ?
+3. **対戦結果の保存**: `PutItem` into `Matches`
+4. **AIモデルの学習・レーティング更新**: `UpdateItem` in `Players` (レーティング、勝敗数、`weights` の変更)
