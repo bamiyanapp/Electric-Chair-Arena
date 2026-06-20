@@ -37,6 +37,34 @@ export default function Home() {
   
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
 
+  // TODO: バックエンドAPIに置き換える
+  const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
+    try {
+      // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
+      // 現状はバックエンドと結合していないためモックのままにするか、直接実装する
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      
+      const res = await fetch(`${apiUrl}/ai-move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ aiPlayerId, role, remainingChairs, opponentShocks })
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('API call failed, fallback to mock', e);
+    }
+
+    // APIが呼べない場合はモック実装
+    return {
+      setChairs: [remainingChairs[Math.floor(Math.random() * remainingChairs.length)]],
+      chosenChair: remainingChairs[Math.floor(Math.random() * remainingChairs.length)]
+    };
+  };
+
   // 初回データロード（モック）
   useEffect(() => {
     // 実際にはバックエンドの /get-players や /get-leaderboard を叩く
@@ -233,10 +261,173 @@ export default function Home() {
         )}
 
         {currentView === 'GAME' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center py-12">
-            <h2 className="text-2xl font-semibold mb-4">人間対AI モード</h2>
-            <p className="text-gray-600 mb-6">現在開発中です。アップデートをお待ちください。</p>
-            <button onClick={() => setCurrentView('LOBBY')} className="px-6 py-2 bg-gray-200 hover:bg-gray-300 rounded-md transition">ロビーへ戻る</button>
+          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold">人間対AI モード</h2>
+              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
+                <select
+                  value={player2Id}
+                  onChange={(e) => setPlayer2Id(e.target.value)}
+                  className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
+                >
+                  {players.map(p => (
+                    <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={() => {
+                  setLoading(true);
+                  // Setup initial game state
+                  const initialChairs = Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
+                  setMatchResult({
+                    matchId: `match-human-${Date.now()}`,
+                    player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+                    player2: players.find(p => p.playerId === player2Id)!,
+                    winner: '',
+                    ratingDiff: 0,
+                    scores: { p1: 0, p2: 0 },
+                    shocks: { p1: 0, p2: 0 },
+                    logs: [{ remainingChairs: initialChairs, turn: 1, state: 'HUMAN_SET_OR_WAIT' }]
+                  });
+                  setLoading(false);
+                }}
+                disabled={loading}
+                className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
+              >
+                {loading ? '対戦準備中...' : '対戦開始'}
+              </button>
+            </div>
+            
+            {matchResult && matchResult.matchId.startsWith('match-human-') && (
+              <div className="mt-8 border-t pt-8">
+                <div className="grid grid-cols-2 gap-4 text-center mb-8">
+                  <div className="p-4 border rounded-lg bg-green-50">
+                    <div className="font-bold text-lg mb-2">あなた (人間)</div>
+                    <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p1} pt</div>
+                    <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p1} / {GAME_RULES.MAX_SHOCKS}</div>
+                  </div>
+                  <div className="p-4 border rounded-lg bg-gray-50">
+                    <div className="font-bold text-lg mb-2">{matchResult.player2.name}</div>
+                    <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p2} pt</div>
+                    <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p2} / {GAME_RULES.MAX_SHOCKS}</div>
+                  </div>
+                </div>
+
+                {matchResult.winner ? (
+                  <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
+                    <h3 className="text-3xl font-black text-emerald-900 mb-2">WINNER</h3>
+                    <p className="text-2xl font-bold text-green-700">
+                      {matchResult.winner === 'human' ? 'あなた (人間)' : matchResult.player2.name}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-lg mb-4 font-bold">
+                      {(() => {
+                        const lastLog = matchResult.logs[matchResult.logs.length - 1];
+                        if (lastLog.state === 'HUMAN_SET_OR_WAIT') {
+                          return (lastLog.turn as number) % 2 !== 0 ? 'あなたの番です: 電流を仕掛ける椅子を選んでください' : 'AIの番です: AIが電流を仕掛けています...';
+                        }
+                        return 'あなたの番です: 座る椅子を選んでください';
+                      })()}
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {(matchResult.logs[matchResult.logs.length - 1].remainingChairs as number[]).map(chair => (
+                        <button
+                          key={chair}
+                          className="w-16 h-16 rounded-full bg-blue-100 hover:bg-blue-200 border-2 border-blue-300 font-bold text-xl flex items-center justify-center transition-colors"
+                          onClick={async () => {
+                            if (loading) return;
+                            setLoading(true);
+                            try {
+                              const turn = matchResult.logs[matchResult.logs.length - 1].turn as number;
+                              const isHumanSetter = turn % 2 !== 0;
+                              const newScores = { ...matchResult.scores };
+                              const newShocks = { ...matchResult.shocks };
+                              let remainingChairs = [...(matchResult.logs[matchResult.logs.length - 1].remainingChairs as number[])];
+                              
+                              if (isHumanSetter) {
+                                // Human sets, AI chooses
+                                const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', remainingChairs, newShocks.p1);
+                                const aiChosenChair = aiRes.chosenChair;
+                                const humanSetChairs = [chair]; // For simplicity, human sets 1 chair
+                                
+                                const isShocked = humanSetChairs.includes(aiChosenChair);
+                                if (isShocked) {
+                                  newShocks.p2 += 1;
+                                  alert(`AIは椅子 ${aiChosenChair} を選び、感電しました！`);
+                                } else {
+                                  newScores.p2 += aiChosenChair;
+                                  alert(`AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
+                                }
+                                remainingChairs = remainingChairs.filter(c => c !== aiChosenChair);
+                              } else {
+                                // AI sets, Human chooses
+                                const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', remainingChairs, newShocks.p1);
+                                const aiSetChairs = aiRes.setChairs;
+                                const humanChosenChair = chair;
+                                
+                                const isShocked = aiSetChairs.includes(humanChosenChair);
+                                if (isShocked) {
+                                  newShocks.p1 += 1;
+                                  alert(`ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
+                                } else {
+                                  newScores.p1 += humanChosenChair;
+                                  alert(`セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
+                                }
+                                remainingChairs = remainingChairs.filter(c => c !== humanChosenChair);
+                              }
+                              
+                              // Check winner
+                              let winner = '';
+                              if (newShocks.p1 >= GAME_RULES.MAX_SHOCKS || newScores.p2 >= GAME_RULES.WINNING_SCORE) {
+                                winner = matchResult.player2.playerId;
+                              } else if (newShocks.p2 >= GAME_RULES.MAX_SHOCKS || newScores.p1 >= GAME_RULES.WINNING_SCORE) {
+                                winner = 'human';
+                              } else if (remainingChairs.length <= GAME_RULES.MIN_CHAIRS_TO_END) {
+                                if (newScores.p1 !== newScores.p2) {
+                                  winner = newScores.p1 > newScores.p2 ? 'human' : matchResult.player2.playerId;
+                                } else {
+                                  winner = newShocks.p1 < newShocks.p2 ? 'human' : matchResult.player2.playerId;
+                                }
+                              }
+                              
+                              setMatchResult(prev => {
+                                if (!prev) return prev;
+                                return {
+                                  ...prev,
+                                  winner,
+                                  scores: newScores,
+                                  shocks: newShocks,
+                                  logs: [...prev.logs, { turn: turn + 1, remainingChairs, state: 'HUMAN_SET_OR_WAIT' }]
+                                };
+                              });
+
+                            } catch (e) {
+                              console.error(e);
+                              alert('エラーが発生しました');
+                            } finally {
+                              setLoading(false);
+                            }
+                          }}
+                        >
+                          {chair}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
