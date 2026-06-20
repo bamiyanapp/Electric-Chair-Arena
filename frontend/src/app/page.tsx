@@ -20,7 +20,7 @@ type MatchResult = {
   shocks: { p1: number; p2: number };
   winner: string;
   ratingDiff: number;
-  log: any[];
+  log: string[];
   createdAt: string;
 };
 
@@ -69,8 +69,8 @@ export default function Home() {
       };
 
       setMatches(prev => [mockMatch, ...prev]);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
