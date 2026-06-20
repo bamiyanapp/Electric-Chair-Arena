@@ -12,20 +12,26 @@ functions:
     handler: handler.getPlayers
     events:
       - http:
-          path: players
+          path: get-players
           method: get
-  getMatches:
-    handler: handler.getMatches
+  startMatch:
+    handler: handler.startMatch
     events:
       - http:
-          path: matches
-          method: get
-  simulateMatch:
-    handler: handler.simulateMatch
-    events:
-      - http:
-          path: simulate
+          path: start-match
           method: post
+  getMatchResult:
+    handler: handler.getMatchResult
+    events:
+      - http:
+          path: get-match-result
+          method: get
+  getLeaderboard:
+    handler: handler.getLeaderboard
+    events:
+      - http:
+          path: get-leaderboard
+          method: get
 
 plugins:
   - serverless-offline
