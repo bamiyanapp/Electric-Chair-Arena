@@ -2,15 +2,58 @@
 
 const { GAME_RULES } = require('./rules.js');
 
-// 簡易的なメモリ上でのデータ保持（サーバーレス起動中のみ保持されるが、ローカル開発やテストには十分）
-const players = [
-  { id: 'ai-random', name: 'ランダムAI', description: '完全にランダムに椅子を選び、電流をセットする。', rating: 1450, winCount: 12, lossCount: 15 },
-  { id: 'ai-cautious', name: '慎重派AI', description: '低得点の安全な椅子を狙い、電流を散らす。', rating: 1500, winCount: 18, lossCount: 17 },
-  { id: 'ai-aggressive', name: 'アグレッシブAI', description: '常に高得点の椅子を狙い、相手に高いプレッシャーをかける。', rating: 1520, winCount: 22, lossCount: 20 },
-  { id: 'ai-smart', name: 'カウンティングAI', description: '確率と期待値を計算し、最適な椅子を判定する。', rating: 1580, winCount: 30, lossCount: 18 },
+// AIプレイヤーの初期データ
+const initialPlayers = [
+  {
+    playerId: 'ai-okano',
+    name: '岡野陽一風AI',
+    type: 'personality',
+    rating: 1550,
+    winCount: 42,
+    matchCount: 80,
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    playerId: 'ai-koyabu',
+    name: '小籔千豊風AI',
+    type: 'personality',
+    rating: 1600,
+    winCount: 55,
+    matchCount: 90,
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    playerId: 'ai-junior',
+    name: '千原ジュニア風AI',
+    type: 'personality',
+    rating: 1620,
+    winCount: 61,
+    matchCount: 100,
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    playerId: 'ai-random',
+    name: 'ランダムAI',
+    type: 'random',
+    rating: 1400,
+    winCount: 20,
+    matchCount: 70,
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    playerId: 'ai-rule-based',
+    name: '期待値計算AI',
+    type: 'rule_based',
+    rating: 1520,
+    winCount: 35,
+    matchCount: 75,
+    updatedAt: new Date().toISOString(),
+  },
 ];
 
-const matches = [];
+// インメモリデータベース
+let playersDb = [...initialPlayers];
+let matchesDb = [];
 
 module.exports.getPlayers = async (event) => {
   return {
@@ -20,12 +63,13 @@ module.exports.getPlayers = async (event) => {
       'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
-      players: players.sort((a, b) => b.rating - a.rating),
+      players: playersDb,
     }),
   };
 };
 
-module.exports.getMatches = async (event) => {
+module.exports.getLeaderboard = async (event) => {
+  const sortedPlayers = [...playersDb].sort((a, b) => b.rating - a.rating);
   return {
     statusCode: 200,
     headers: {
@@ -33,96 +77,201 @@ module.exports.getMatches = async (event) => {
       'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
-      matches,
+      leaderboard: sortedPlayers,
     }),
   };
 };
 
-// ゲーム終了判定ヘルパー
-function isGameOver(scores, shocks, remainingChairs) {
-  if (scores.p1 >= GAME_RULES.WINNING_SCORE || scores.p2 >= GAME_RULES.WINNING_SCORE) {
-    return true;
-  }
-  if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || shocks.p2 >= GAME_RULES.MAX_SHOCKS) {
-    return true;
-  }
-  if (remainingChairs.length <= GAME_RULES.MIN_CHAIRS_TO_END) {
-    return true;
-  }
-  return false;
-}
+module.exports.getMatchResult = async (event) => {
+  const params = event.queryStringParameters || {};
+  const { matchId } = params;
 
-// AIの意思決定（電流設置 / 椅子選択）
-function makeAiDecision(aiId, role, remainingChairs, oppositeShocks) {
+  if (!matchId) {
+    return {
+      statusCode: 400,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ error: 'matchId is required' }),
+    };
+  }
+
+  const match = matchesDb.find(m => m.matchId === matchId);
+
+  if (!match) {
+    return {
+      statusCode: 404,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ error: 'Match not found' }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': true,
+    },
+    body: JSON.stringify({
+      match,
+    }),
+  };
+};
+
+// AIの行動と思考
+function getAiMove(playerId, role, remainingChairs, opponentShocks) {
   if (role === 'set') {
-    // 電流を仕掛ける椅子（最大3個、または残りの数に応じて決める）
+    // 親（設置）：残りの椅子の1/3程度に電流をセット
     const numToSet = Math.min(3, Math.max(1, Math.floor(remainingChairs.length / 3)));
     const shuffled = [...remainingChairs].sort(() => 0.5 - Math.random());
     
-    if (aiId === 'ai-aggressive') {
-      // 高得点の椅子を優先して仕掛ける
+    let setChairs = [];
+    let reasoning = '';
+
+    if (playerId === 'ai-okano') {
+      // 岡野：あえて大きな数字（10,11,12）に仕掛けるか、裏をかいて1に仕掛けるギャンブル戦略
+      const highChairs = remainingChairs.filter(c => c >= 9);
+      if (highChairs.length > 0 && Math.random() > 0.4) {
+        setChairs = [...highChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet);
+        reasoning = `「ここは勝負どころ。あいつは絶対高得点（10〜12）を欲しがって座りにくるはず。そこに罠を張るのが勝負師ってものよ！」`;
+      } else {
+        setChairs = shuffled.slice(0, numToSet);
+        reasoning = `「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」`;
+      }
+    } else if (playerId === 'ai-koyabu') {
+      // 小籔：理詰め。中間点数の椅子を好む
+      const midChairs = remainingChairs.filter(c => c >= 4 && c <= 8);
+      if (midChairs.length > 0) {
+        setChairs = [...midChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet);
+        reasoning = `「まあ普通に考えて、大勝負に出る勇気もない、かといって1点とかで刻むのも嫌な奴は、中間の4〜8辺りに逃げるんですわ。そこを突くのがセオリー。」`;
+      } else {
+        setChairs = shuffled.slice(0, numToSet);
+        reasoning = `「残った選択肢から考えて、ここが最も論理的な罠の位置ですわ。」`;
+      }
+    } else if (playerId === 'ai-junior') {
+      // ジュニア：相手を翻弄する心理戦
+      setChairs = shuffled.slice(0, numToSet);
+      reasoning = `「ええか、相手はさっき俺が低い数字を狙ったのを見てるわけやん？やから今度は絶対に高い数字に逃げよる。ここを読めるかどうかがこのゲームのすべてやな。」`;
+    } else if (playerId === 'ai-rule-based') {
+      // 期待値計算：期待値が最も高い椅子、または確率的に相手が座りそうな椅子に配置
       const sortedByPoints = [...remainingChairs].sort((a, b) => b - a);
-      return sortedByPoints.slice(0, numToSet);
-    } else if (aiId === 'ai-cautious') {
-      // 相手が選びそうな低得点の椅子、あるいはランダム
-      const sortedByPoints = [...remainingChairs].sort((a, b) => a - b);
-      return sortedByPoints.slice(0, numToSet);
+      setChairs = sortedByPoints.slice(0, numToSet);
+      reasoning = `「(計算機AI) 得点効率の高い順から電流を仕掛けることで、相手の期待利得を最大効率で低減させます。」`;
     } else {
-      // デフォルト（ランダム）
-      return shuffled.slice(0, numToSet);
+      // ランダム
+      setChairs = shuffled.slice(0, numToSet);
+      reasoning = `「ランダムに電流を配置。完全な確率論でのアプローチです。」`;
     }
+
+    // 整合性を保つため、万が一空っぽなら補完
+    if (setChairs.length === 0) {
+      setChairs = shuffled.slice(0, numToSet);
+    }
+    return { setChairs, reasoning };
   } else {
-    // 椅子を選ぶ
-    if (aiId === 'ai-aggressive') {
-      // 残っている椅子の中から最も得点が高いもの（12に近いもの）を選ぶ
-      return Math.max(...remainingChairs);
-    } else if (aiId === 'ai-cautious') {
-      // 残っている椅子の中から得点が低いものを選ぶ
-      return Math.min(...remainingChairs);
-    } else if (aiId === 'ai-smart') {
-      // カウンティング：相手の感電状況や残り椅子から期待値を考える。
-      // シンプルな期待値：高すぎず、低すぎない中間、またはランダムで確率を考慮
-      // ここでは残っている椅子のうち中央値に近いものを選択
-      const sorted = [...remainingChairs].sort((a, b) => a - b);
-      return sorted[Math.floor(sorted.length / 2)];
+    // 子（選択）：椅子に座る
+    let chosenChair = remainingChairs[0];
+    let reasoning = '';
+
+    if (playerId === 'ai-okano') {
+      // 岡野：デカい当たり（高得点）に全ツッパ
+      const highChairs = remainingChairs.filter(c => c >= 8);
+      if (highChairs.length > 0) {
+        chosenChair = Math.max(...highChairs);
+        reasoning = `「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！12点座って一気に40点に近づいたる！」`;
+      } else {
+        chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
+        reasoning = `「もう残りのどれでも一緒や！俺の右手が座れと叫んでる！」`;
+      }
+    } else if (playerId === 'ai-koyabu') {
+      // 小籔：安全第一、感電リスクを嫌う
+      const lowChairs = remainingChairs.filter(c => c <= 6);
+      if (lowChairs.length > 0) {
+        chosenChair = Math.min(...lowChairs);
+        reasoning = `「高得点は魅力やけど、そこに電流仕掛けられて感電してライフ削られるのは一番あきません。低得点で安全な椅子から丁寧にいきまっせ。」`;
+      } else {
+        chosenChair = Math.min(...remainingChairs);
+        reasoning = `「最も罠が仕掛けられにくい、一番値の低い椅子を選択するのが最善手です。」`;
+      }
+    } else if (playerId === 'ai-junior') {
+      // ジュニア：ブラフの裏をかく
+      const sorted = [...remainingChairs].sort((a, b) => b - a);
+      chosenChair = sorted[Math.floor(sorted.length / 2)] || remainingChairs[0];
+      reasoning = `「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中、一番心理的に狙いにくい位置がド本命や。」`;
+    } else if (playerId === 'ai-rule-based') {
+      // 最も期待値の高い選択肢
+      const sorted = [...remainingChairs].sort((a, b) => b - a);
+      chosenChair = sorted[Math.floor(sorted.length / 2)] || remainingChairs[0];
+      reasoning = `「期待値と安全性を加味した最適解となる中間位のシート ${chosenChair} を選択。」`;
     } else {
-      // デフォルト（ランダム）
-      const randomIndex = Math.floor(Math.random() * remainingChairs.length);
-      return remainingChairs[randomIndex];
+      chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
+      reasoning = `「ランダムに椅子 ${chosenChair} を選択します。」`;
     }
+
+    return { chosenChair, reasoning };
   }
 }
 
-module.exports.simulateMatch = async (event) => {
+module.exports.startMatch = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { player1Id = 'ai-random', player2Id = 'ai-smart' } = body;
+    const { player1Id, player2Id } = body;
 
-    const p1 = players.find(p => p.id === player1Id) || players[0];
-    const p2 = players.find(p => p.id === player2Id) || players[1];
+    if (!player1Id || !player2Id) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'player1Id and player2Id are required' }),
+      };
+    }
 
-    // 対戦シミュレーション開始
+    const p1 = playersDb.find(p => p.playerId === player1Id);
+    const p2 = playersDb.find(p => p.playerId === player2Id);
+
+    if (!p1 || !p2) {
+      return {
+        statusCode: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'One or both players not found' }),
+      };
+    }
+
+    // ゲーム状態初期化
     let remainingChairs = Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
     const scores = { p1: 0, p2: 0 };
     const shocks = { p1: 0, p2: 0 };
-    const log = [];
+    const logs = [];
     let turn = 1;
 
-    // 奇数ターンはp1が「設置」でp2が「座る」、偶数ターンは逆
-    while (!isGameOver(scores, shocks, remainingChairs)) {
+    // ゲーム終了判定ヘルパー
+    const isOver = () => {
+      if (scores.p1 >= GAME_RULES.WINNING_SCORE || scores.p2 >= GAME_RULES.WINNING_SCORE) return true;
+      if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || shocks.p2 >= GAME_RULES.MAX_SHOCKS) return true;
+      if (remainingChairs.length <= GAME_RULES.MIN_CHAIRS_TO_END) return true;
+      return false;
+    };
+
+    while (!isOver()) {
       const isP1Setter = turn % 2 !== 0;
       const setter = isP1Setter ? p1 : p2;
       const chooser = isP1Setter ? p2 : p1;
-      const setterId = isP1Setter ? player1Id : player2Id;
-      const chooserId = isP1Setter ? player2Id : player1Id;
 
-      // 親が電流をセットする
-      const shockedChairs = makeAiDecision(setterId, 'set', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
-      // 子が椅子を選ぶ
-      const chosenChair = makeAiDecision(chooserId, 'choose', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
+      // 親が電流を仕掛ける
+      const { setChairs, reasoning: setReasoning } = getAiMove(setter.playerId, 'set', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
+      // 子が椅子を選択する
+      const { chosenChair, reasoning: chooseReasoning } = getAiMove(chooser.playerId, 'choose', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
 
-      // 判定
-      const isShocked = shockedChairs.includes(chosenChair);
+      const isShocked = setChairs.includes(chosenChair);
       let scoreGained = 0;
 
       if (isShocked) {
@@ -132,7 +281,6 @@ module.exports.simulateMatch = async (event) => {
           shocks.p1 += 1;
         }
       } else {
-        // セーフならその椅子の番号が得点になる
         scoreGained = chosenChair;
         if (isP1Setter) {
           scores.p2 += scoreGained;
@@ -141,79 +289,72 @@ module.exports.simulateMatch = async (event) => {
         }
       }
 
-      // 椅子を使用済みにする
+      // 椅子を削除
       remainingChairs = remainingChairs.filter(c => c !== chosenChair);
 
-      log.push({
+      logs.push({
         turn,
         setter: setter.name,
         chooser: chooser.name,
-        shockedChairs,
+        shockedChairs: setChairs,
         chosenChair,
         isShocked,
         scoreGained,
         scores: { ...scores },
         shocks: { ...shocks },
         remainingChairs: [...remainingChairs],
+        reasoning: `${setReasoning}\n${chooseReasoning}`,
       });
 
       turn++;
     }
 
-    // 勝敗決定
-    let winnerId = null;
-    let loserId = null;
-
+    // 勝者判定
+    let winnerId = '';
     if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || scores.p2 >= GAME_RULES.WINNING_SCORE) {
-      winnerId = p2.id;
-      loserId = p1.id;
+      winnerId = p2.playerId;
     } else if (shocks.p2 >= GAME_RULES.MAX_SHOCKS || scores.p1 >= GAME_RULES.WINNING_SCORE) {
-      winnerId = p1.id;
-      loserId = p2.id;
+      winnerId = p1.playerId;
     } else {
-      // 最後に椅子が1つになった場合、スコアが多い方が勝ち
+      // 椅子残り1つ
       if (scores.p1 !== scores.p2) {
-        winnerId = scores.p1 > scores.p2 ? p1.id : p2.id;
-        loserId = scores.p1 > scores.p2 ? p2.id : p1.id;
+        winnerId = scores.p1 > scores.p2 ? p1.playerId : p2.playerId;
       } else {
-        // 同点なら感電が少ない方
-        if (shocks.p1 !== shocks.p2) {
-          winnerId = shocks.p1 < shocks.p2 ? p1.id : p2.id;
-          loserId = shocks.p1 < shocks.p2 ? p2.id : p1.id;
-        } else {
-          // それでも同じならp1の勝ちとする
-          winnerId = p1.id;
-          loserId = p2.id;
-        }
+        winnerId = shocks.p1 < shocks.p2 ? p1.playerId : p2.playerId;
       }
     }
 
-    const winner = players.find(p => p.id === winnerId);
-    const loser = players.find(p => p.id === loserId);
+    const loserId = winnerId === p1.playerId ? p2.playerId : p1.playerId;
+    const winner = playersDb.find(p => p.playerId === winnerId);
+    const loser = playersDb.find(p => p.playerId === loserId);
 
-    // ELOレーティングの更新
+    // ELOレーティング更新
     const kFactor = 32;
     const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
     const ratingDiff = Math.round(kFactor * (1 - expectedWinner));
 
     winner.rating += ratingDiff;
     loser.rating -= ratingDiff;
-    winner.winCount += 1;
-    loser.lossCount += 1;
 
-    const matchResult = {
-      id: `match-${Date.now()}`,
-      player1: p1,
-      player2: p2,
-      scores,
-      shocks,
-      winner: winner.name,
+    winner.winCount += 1;
+    winner.matchCount += 1;
+    loser.matchCount += 1;
+
+    winner.updatedAt = new Date().toISOString();
+    loser.updatedAt = new Date().toISOString();
+
+    const matchId = `match-${Date.now()}`;
+    const newMatch = {
+      matchId,
+      player1Id,
+      player2Id,
+      winnerId,
       ratingDiff,
-      log,
+      logs,
       createdAt: new Date().toISOString(),
     };
 
-    matches.unshift(matchResult);
+    matchesDb.unshift(newMatch);
 
     return {
       statusCode: 200,
@@ -221,7 +362,16 @@ module.exports.simulateMatch = async (event) => {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Credentials': true,
       },
-      body: JSON.stringify(matchResult),
+      body: JSON.stringify({
+        matchId,
+        player1: p1,
+        player2: p2,
+        winner: winner.name,
+        ratingDiff,
+        scores,
+        shocks,
+        logs,
+      }),
     };
   } catch (error) {
     return {

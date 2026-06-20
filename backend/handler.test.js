@@ -1,49 +1,69 @@
 import { describe, it, expect } from 'vitest';
-import { getPlayers, getMatches, simulateMatch } from './handler.js';
+import { getPlayers, startMatch, getMatchResult, getLeaderboard } from './handler.js';
 
-describe('Backend Handler Tests', () => {
-  it('should get players list sorted by rating', async () => {
+describe('Backend Handler Specification Tests', () => {
+  it('should get players list properly', async () => {
     const response = await getPlayers({});
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.players).toBeInstanceOf(Array);
     expect(body.players.length).toBeGreaterThan(0);
+    expect(body.players[0].playerId).toBeDefined();
+    expect(body.players[0].name).toBeDefined();
+    expect(body.players[0].type).toBeDefined();
+  });
+
+  it('should get leaderboard sorted by rating', async () => {
+    const response = await getLeaderboard({});
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.leaderboard).toBeInstanceOf(Array);
     
-    // rating の降順になっていること
-    const ratings = body.players.map(p => p.rating);
+    const ratings = body.leaderboard.map(p => p.rating);
     const sortedRatings = [...ratings].sort((a, b) => b - a);
     expect(ratings).toEqual(sortedRatings);
   });
 
-  it('should get empty matches initially', async () => {
-    const response = await getMatches({});
-    expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(body.matches).toBeInstanceOf(Array);
-  });
-
-  it('should simulate a match successfully', async () => {
+  it('should start a match and get results, logs, and save them', async () => {
     const event = {
       body: JSON.stringify({
-        player1Id: 'ai-random',
-        player2Id: 'ai-smart',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
       }),
     };
-    const response = await simulateMatch(event);
+    
+    const response = await startMatch(event);
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     
-    expect(body.id).toBeDefined();
-    expect(body.player1.id).toBe('ai-random');
-    expect(body.player2.id).toBe('ai-smart');
+    expect(body.matchId).toBeDefined();
+    expect(body.player1.playerId).toBe('ai-okano');
+    expect(body.player2.playerId).toBe('ai-junior');
     expect(body.winner).toBeDefined();
-    expect(body.log).toBeInstanceOf(Array);
-    expect(body.log.length).toBeGreaterThan(0);
+    expect(body.logs).toBeInstanceOf(Array);
+    expect(body.logs.length).toBeGreaterThan(0);
+
+    // Retrieve match result using getMatchResult
+    const getResultEvent = {
+      queryStringParameters: {
+        matchId: body.matchId,
+      },
+    };
     
-    // マッチ履歴が更新されていることを確認
-    const matchesResponse = await getMatches({});
-    const matchesBody = JSON.parse(matchesResponse.body);
-    expect(matchesBody.matches.length).toBe(1);
-    expect(matchesBody.matches[0].id).toBe(body.id);
+    const resultResponse = await getMatchResult(getResultEvent);
+    expect(resultResponse.statusCode).toBe(200);
+    const resultBody = JSON.parse(resultResponse.body);
+    expect(resultBody.match.matchId).toBe(body.matchId);
+    expect(resultBody.match.player1Id).toBe('ai-okano');
+  });
+
+  it('should fail getMatchResult if matchId is missing or invalid', async () => {
+    const responseNoId = await getMatchResult({});
+    expect(responseNoId.statusCode).toBe(400);
+
+    const responseInvalidId = await getMatchResult({
+      queryStringParameters: { matchId: 'invalid-id' },
+    });
+    expect(responseInvalidId.statusCode).toBe(404);
   });
 });
