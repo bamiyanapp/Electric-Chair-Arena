@@ -20,7 +20,7 @@ type MatchResult = {
   ratingDiff: number;
   scores: { p1: number; p2: number };
   shocks: { p1: number; p2: number };
-  logs: any[];
+  logs: Record<string, unknown>[];
 };
 
 export default function Home() {
@@ -79,8 +79,8 @@ export default function Home() {
 
       setMatchResult(mockResult);
       setCurrentView('RESULT');
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
