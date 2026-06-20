@@ -257,6 +257,35 @@ AIプレイヤーおよびプレイヤーキャラクターを格納するテー
 4. **Build and deployment** セクションの **Source** を **GitHub Actions** に変更します（デフォルトの `Deploy from a branch` から変更する必要があります）。
 5. 設定変更後、`main` ブランチへ変更がプッシュされると自動的にデプロイが再実行され、成功するようになります。
 
+### リモートでCSSやJavaScriptなどのアセットが読み込めない（スタイルが崩れる・動かない）場合の対策
+GitHub Pages（またはカスタムのサブディレクトリを持つ環境）にデプロイした際、「ローカル環境ではCSSやJSが効いているが、リモートにデプロイするとCSSが適用されず画面が崩れる」という現象が頻発することがあります。
+
+#### 原因
+Next.jsを静的エクスポート（`output: 'export'`）し、サブディレクトリ配下（GitHub Pagesの `https://<username>.github.io/<repository-name>/` など）にホストする場合、静的アセットへのパス（`/` で始まる絶対パス）にサブディレクトリ名が含まれていないとブラウザがファイルを読み込めず、404エラーとなります。
+
+#### 対策と再発防止策
+本プロジェクトでは、リポジトリの変更やフォークに対応するため、`frontend/next.config.mjs` にてビルド環境（GitHub Actions）の環境変数からリポジトリ名を自動抽出し、`basePath` および `assetPrefix` に設定する動的解決の仕組みを導入しています。
+
+```javascript
+const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
+const repoName = isGithubActions ? process.env.GITHUB_REPOSITORY.split('/')[1] : '';
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: 'export',
+  basePath: isGithubActions ? `/${repoName}` : '',
+  assetPrefix: isGithubActions ? `/${repoName}/` : '',
+  // ...
+};
+```
+
+この設定により、リポジトリ名の変更や他ユーザーによるフォークが行われても、自動的に追従して適切なパスでビルドされます。
+
+#### トラブルシューティング
+上記設定を行ってもアセットの読み込みに失敗する場合、以下の項目を確認してください。
+1. **GitHub Actions の環境変数確認**: Build ジョブで `GITHUB_REPOSITORY` 環境変数が渡されているか確認します（GitHub Actions の標準環境変数なので、標準構成であれば自動で設定されます）。
+2. **アセットURL of 確認**: ブラウザの開発者ツール（F12）の `Console` または `Network` タブを開き、読み込みに失敗しているCSSやJSのURL（例: `https://<username>.github.io/Electric-Chair-Arena/_next/static/...`）が、実際のリポジトリ名と一致しているか確認してください。もし不一致がある場合は、`frontend/next.config.mjs` 内の `repoName` が適切に評価されているかをデバッグしてください。
+
 ---
 
 # 運用
