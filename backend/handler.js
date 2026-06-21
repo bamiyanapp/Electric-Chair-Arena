@@ -202,7 +202,7 @@ const initialMatches = [
 let playersDb = [...initialPlayers];
 let matchesDb = [...initialMatches];
 
-module.exports.getPlayers = async (event) => {
+module.exports.getPlayers = async () => {
   return {
     statusCode: 200,
     headers: {
@@ -215,7 +215,7 @@ module.exports.getPlayers = async (event) => {
   };
 };
 
-module.exports.getLeaderboard = async (event) => {
+module.exports.getLeaderboard = async () => {
   const sortedPlayers = [...playersDb].sort((a, b) => b.rating - a.rating);
   return {
     statusCode: 200,
@@ -258,7 +258,7 @@ module.exports.getAiMove = async (event) => {
   }
 };
 
-module.exports.getMatches = async (event) => {
+module.exports.getMatches = async () => {
   return {
     statusCode: 200,
     headers: {
@@ -312,7 +312,7 @@ module.exports.getMatchResult = async (event) => {
 };
 
 // AIの行動と思考
-function getAiMove(playerId, role, remainingChairs, opponentShocks) {
+function getAiMove(playerId, role, remainingChairs) {
   if (role === 'set') {
     // 親（設置）：残りの椅子の1/3程度に電流をセット
     const numToSet = Math.min(3, Math.max(1, Math.floor(remainingChairs.length / 3)));
@@ -456,9 +456,9 @@ module.exports.startMatch = async (event) => {
       const chooser = isP1Setter ? p2 : p1;
 
       // 親が電流を仕掛ける
-      const { setChairs, reasoning: setReasoning } = getAiMove(setter.playerId, 'set', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
+      const { setChairs, reasoning: setReasoning } = getAiMove(setter.playerId, 'set', remainingChairs);
       // 子が椅子を選択する
-      const { chosenChair, reasoning: chooseReasoning } = getAiMove(chooser.playerId, 'choose', remainingChairs, isP1Setter ? shocks.p2 : shocks.p1);
+      const { chosenChair, reasoning: chooseReasoning } = getAiMove(chooser.playerId, 'choose', remainingChairs);
 
       const isShocked = setChairs.includes(chosenChair);
       let scoreGained = 0;
