@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { GAME_RULES } from '@/constants/rules';
 
 type Player = {
@@ -99,8 +100,33 @@ function BaseballScoreboard({ match }: { match: MatchResult }) {
   );
 }
 
-export default function Home() {
-  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | 'SCOREBOARDS'>('LOBBY');
+export function HomeContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
+  const viewFromUrl = searchParams.get('view') as 'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | 'SCOREBOARDS' | null;
+  const [currentView, setCurrentViewState] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | 'SCOREBOARDS'>(viewFromUrl || 'LOBBY');
+
+  useEffect(() => {
+    if (viewFromUrl && viewFromUrl !== currentView) {
+      setCurrentViewState(viewFromUrl);
+    } else if (!viewFromUrl && currentView !== 'LOBBY') {
+      setCurrentViewState('LOBBY');
+    }
+  }, [viewFromUrl, currentView]);
+
+  const setCurrentView = (view: 'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | 'SCOREBOARDS') => {
+    setCurrentViewState(view);
+    const params = new URLSearchParams(searchParams.toString());
+    if (view === 'LOBBY') {
+      params.delete('view');
+    } else {
+      params.set('view', view);
+    }
+    const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+    router.push(newUrl, { scroll: false });
+  };
   
   const [players, setPlayers] = useState<Player[]>([]);
   const [leaderboard, setLeaderboard] = useState<Player[]>([]);
@@ -804,5 +830,13 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen p-8 flex justify-center items-center">Loading...</div>}>
+      <HomeContent />
+    </Suspense>
   );
 }
