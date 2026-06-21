@@ -428,3 +428,105 @@ module.exports.startMatch = async (event) => {
     };
   }
 };
+
+module.exports.saveMatch = async (event) => {
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { matchId, player1Id, player2Id, winnerId, scores, shocks, logs } = body;
+
+    if (!matchId || !player1Id || !player2Id || !winnerId) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'Missing parameters' }),
+      };
+    }
+
+    const p1 = player1Id === 'human'
+      ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
+      : playersDb.find(p => p.playerId === player1Id);
+
+    const p2 = player2Id === 'human'
+      ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
+      : playersDb.find(p => p.playerId === player2Id);
+
+    if (!p1 || !p2) {
+      return {
+        statusCode: 404,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'One or both players not found' }),
+      };
+    }
+
+    let ratingDiff = 0;
+    
+    // AIのレーティングを更新 (相手が人間の場合)
+    if (player1Id === 'human' && player2Id !== 'human') {
+      const aiPlayer = p2;
+      const isAiWinner = winnerId === aiPlayer.playerId;
+      const humanRating = 1500;
+      
+      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
+      const kFactor = 32;
+      const actualAi = isAiWinner ? 1 : 0;
+      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
+      
+      aiPlayer.rating += ratingDiff;
+      aiPlayer.matchCount += 1;
+      if (isAiWinner) aiPlayer.winCount += 1;
+      aiPlayer.updatedAt = new Date().toISOString();
+    } else if (player2Id === 'human' && player1Id !== 'human') {
+      const aiPlayer = p1;
+      const isAiWinner = winnerId === aiPlayer.playerId;
+      const humanRating = 1500;
+      
+      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
+      const kFactor = 32;
+      const actualAi = isAiWinner ? 1 : 0;
+      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
+      
+      aiPlayer.rating += ratingDiff;
+      aiPlayer.matchCount += 1;
+      if (isAiWinner) aiPlayer.winCount += 1;
+      aiPlayer.updatedAt = new Date().toISOString();
+    }
+
+    const newMatch = {
+      matchId,
+      player1Id,
+      player2Id,
+      winnerId,
+      ratingDiff: Math.abs(ratingDiff),
+      scores,
+      shocks,
+      logs,
+      createdAt: new Date().toISOString(),
+    };
+
+    matchesDb.unshift(newMatch);
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ success: true, match: newMatch }),
+    };
+  } catch (error) {
+    return {
+      statusCode: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ error: error.message }),
+    };
+  }
+};

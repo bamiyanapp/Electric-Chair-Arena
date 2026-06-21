@@ -44,6 +44,12 @@ functions:
       - http:
           path: ai-move
           method: post
+  saveMatch:
+    handler: handler.saveMatch
+    events:
+      - http:
+          path: save-match
+          method: post
 
 plugins:
   - serverless-offline
