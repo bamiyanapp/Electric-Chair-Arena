@@ -111,6 +111,19 @@ module.exports.getAiMove = async (event) => {
   }
 };
 
+module.exports.getMatches = async (event) => {
+  return {
+    statusCode: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Credentials': true,
+    },
+    body: JSON.stringify({
+      matches: matchesDb,
+    }),
+  };
+};
+
 module.exports.getMatchResult = async (event) => {
   const params = event.queryStringParameters || {};
   const { matchId } = params;

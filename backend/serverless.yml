@@ -20,6 +20,12 @@ functions:
       - http:
           path: start-match
           method: post
+  getMatches:
+    handler: handler.getMatches
+    events:
+      - http:
+          path: get-matches
+          method: get
   getMatchResult:
     handler: handler.getMatchResult
     events:
