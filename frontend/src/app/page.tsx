@@ -507,6 +507,7 @@ export default function Home() {
                                     if (isShocked) {
                                       setShockedChair(aiChosenChair);
                                       newShocks.p2 += 1;
+                                      newScores.p2 = 0;
                                       setStatusMessage(`⚡ ビリビリ！ AIは椅子 ${aiChosenChair} を選び、感電しました！`);
                                     } else {
                                       newScores.p2 += aiChosenChair;
@@ -530,6 +531,7 @@ export default function Home() {
                                     if (isShocked) {
                                       setShockedChair(humanChosenChair);
                                       newShocks.p1 += 1;
+                                      newScores.p1 = 0;
                                       setStatusMessage(`⚡ ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
                                     } else {
                                       newScores.p1 += humanChosenChair;

@@ -306,8 +306,10 @@ module.exports.startMatch = async (event) => {
       if (isShocked) {
         if (isP1Setter) {
           shocks.p2 += 1;
+          scores.p2 = 0;
         } else {
           shocks.p1 += 1;
+          scores.p1 = 0;
         }
       } else {
         scoreGained = chosenChair;
