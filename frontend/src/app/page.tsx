@@ -452,14 +452,80 @@ export default function Home() {
                           const left = 50 + radius * Math.cos(angle);
                           const top = 50 + radius * Math.sin(angle);
                           
+                          // 椅子の詳細なグラフィカル状態判定
+                          const chairStatus = (() => {
+                            if (shockedChair === chair) return 'SHOCKING';
+                            if (highlightedChair === chair) return 'HIGHLIGHTED';
+                            if (!isAvailable) {
+                              const log = matchResult.logs.find(l => l.chosenChair === chair);
+                              if (log) {
+                                return log.isShocked ? 'PAST_SHOCKED' : 'PAST_SAFE';
+                              }
+                              return 'UNAVAILABLE';
+                            }
+                            return 'AVAILABLE';
+                          })();
+
                           // 椅子のスタイリングとアニメーションクラスの設定
-                          const chairClass = shockedChair === chair
-                            ? 'bg-red-600 border-red-800 text-white scale-110 animate-ping duration-100'
-                            : highlightedChair === chair
-                            ? 'bg-yellow-400 border-yellow-600 text-yellow-950 scale-110 animate-bounce'
-                            : isAvailable
-                            ? 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-2 border-blue-400 text-blue-800 shadow-md active:scale-95'
-                            : 'bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed opacity-40';
+                          const { chairClass, chairContent } = (() => {
+                            switch (chairStatus) {
+                              case 'SHOCKING':
+                                return {
+                                  chairClass: 'bg-red-600 border-2 border-red-900 text-white scale-125 animate-bounce shadow-lg shadow-red-500/50 z-20',
+                                  chairContent: (
+                                    <span className="relative flex h-full w-full items-center justify-center">
+                                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+                                      <span className="relative text-2xl">⚡💥</span>
+                                    </span>
+                                  )
+                                };
+                              case 'HIGHLIGHTED':
+                                return {
+                                  chairClass: 'bg-yellow-400 border-2 border-yellow-600 text-yellow-950 scale-110 animate-pulse shadow-md z-10',
+                                  chairContent: (
+                                    <span className="flex flex-col items-center justify-center leading-none">
+                                      <span className="text-lg animate-bounce">🤔</span>
+                                      <span className="text-[10px] font-bold">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              case 'PAST_SHOCKED':
+                                return {
+                                  chairClass: 'bg-gradient-to-br from-red-500 to-red-700 border-2 border-red-950 text-white shadow-inner scale-95 opacity-90 cursor-not-allowed',
+                                  chairContent: (
+                                    <span className="flex flex-col items-center justify-center leading-none">
+                                      <span className="text-lg drop-shadow">⚡</span>
+                                      <span className="text-[9px] font-bold opacity-80">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              case 'PAST_SAFE':
+                                return {
+                                  chairClass: 'bg-gradient-to-br from-emerald-400 to-emerald-600 border-2 border-emerald-800 text-white shadow-inner scale-95 opacity-90 cursor-not-allowed',
+                                  chairContent: (
+                                    <span className="flex flex-col items-center justify-center leading-none">
+                                      <span className="text-base drop-shadow">✅</span>
+                                      <span className="text-[9px] font-bold opacity-80">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              case 'AVAILABLE':
+                                return {
+                                  chairClass: 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-2 border-blue-400 text-blue-800 shadow-md active:scale-95 cursor-pointer',
+                                  chairContent: (
+                                    <span className="flex flex-col items-center justify-center leading-none">
+                                      <span className="text-lg">🪑</span>
+                                      <span className="text-xs font-black">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              default:
+                                return {
+                                  chairClass: 'bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed opacity-40',
+                                  chairContent: <span className="text-xs font-bold">{chair}</span>
+                                };
+                            }
+                          })();
 
                           return (
                             <button
@@ -471,7 +537,7 @@ export default function Home() {
                                 top: `${top}%`,
                                 transform: 'translate(-50%, -50%)',
                               }}
-                              className={`w-14 h-14 rounded-full font-bold text-lg flex items-center justify-center transition-all ${chairClass}`}
+                              className={`w-14 h-14 rounded-full font-bold flex items-center justify-center transition-all duration-300 ${chairClass}`}
                               onClick={async () => {
                                 if (loading || gameStep !== 'IDLE') return;
                                 setLoading(true);
@@ -577,7 +643,7 @@ export default function Home() {
                                 }
                               }}
                             >
-                              {chair}
+                              {chairContent}
                             </button>
                           );
                         });
