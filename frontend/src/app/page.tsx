@@ -192,13 +192,18 @@ export default function Home() {
     }
   };
 
+  const isGameActive = currentView === 'GAME' && matchResult && matchResult.matchId.startsWith('match-human-');
+
   return (
-    <main className="min-h-screen p-8 bg-gray-50 text-gray-900 font-sans">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <header className="text-center space-y-2 cursor-pointer" onClick={() => setCurrentView('LOBBY')}>
-          <h1 className="text-4xl font-bold text-gray-900 tracking-tight">Electric Chair Arena</h1>
-          <p className="text-gray-600">AIプレイヤー対戦シミュレーター</p>
-        </header>
+    <main className="min-h-screen p-4 sm:p-8 bg-gray-50 text-gray-900 font-sans">
+      <div className="max-w-4xl mx-auto space-y-4 sm:space-y-8">
+        {/* 対戦中・対戦結果が表示されている間（対戦開始後）はヘッダーをカットする */}
+        {!isGameActive && (
+          <header className="text-center space-y-1 sm:space-y-2 cursor-pointer py-2 sm:py-4" onClick={() => setCurrentView('LOBBY')}>
+            <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 tracking-tight">Electric Chair Arena</h1>
+            <p className="text-xs sm:text-sm text-gray-600">AIプレイヤー対戦シミュレーター</p>
+          </header>
+        )}
 
         {currentView === 'LOBBY' && (
           <div className="space-y-6">
@@ -340,67 +345,65 @@ export default function Home() {
 
         {currentView === 'GAME' && (
           <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">人間対AI モード</h2>
-              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
-                <select
-                  value={player2Id}
-                  onChange={(e) => setPlayer2Id(e.target.value)}
-                  className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
-                >
-                  {players.map(p => (
-                    <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+            {/* ゲームアクティブでないときだけ表示する要素 */}
+            {!isGameActive && (
+              <>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-semibold">人間対AI モード</h2>
+                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
+                    <select
+                      value={player2Id}
+                      onChange={(e) => setPlayer2Id(e.target.value)}
+                      className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
+                    >
+                      {players.map(p => (
+                        <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
 
-            <div className="mt-8 flex justify-center">
-              <button
-                onClick={() => {
-                  setLoading(true);
-                  setMatchResult({
-                    matchId: `match-human-${Date.now()}`,
-                    player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
-                    player2: players.find(p => p.playerId === player2Id)!,
-                    winner: '',
-                    ratingDiff: 0,
-                    scores: { p1: 0, p2: 0 },
-                    shocks: { p1: 0, p2: 0 },
-                    logs: []
-                  });
-                  setGameStep('IDLE');
-                  setStatusMessage('');
-                  setHighlightedChair(null);
-                  setShockedChair(null);
-                  setTempNextState(null);
-                  setLoading(false);
-                }}
-                disabled={loading}
-                className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
-              >
-                {loading ? '対戦準備中...' : '対戦開始'}
-              </button>
-            </div>
-            
+            {!isGameActive && (
+              <div className="mt-8 flex justify-center">
+                <button
+                  onClick={() => {
+                    setLoading(true);
+                    setMatchResult({
+                      matchId: `match-human-${Date.now()}`,
+                      player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+                      player2: players.find(p => p.playerId === player2Id)!,
+                      winner: '',
+                      ratingDiff: 0,
+                      scores: { p1: 0, p2: 0 },
+                      shocks: { p1: 0, p2: 0 },
+                      logs: []
+                    });
+                    setGameStep('IDLE');
+                    setStatusMessage('');
+                    setHighlightedChair(null);
+                    setShockedChair(null);
+                    setTempNextState(null);
+                    setLoading(false);
+                  }}
+                  disabled={loading}
+                  className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  {loading ? '対戦準備中...' : '対戦開始'}
+                </button>
+              </div>
+            )}
+
             {matchResult && matchResult.matchId.startsWith('match-human-') && (
-              <div className="mt-8 border-t pt-8">
-                <div className="grid grid-cols-2 gap-4 text-center mb-8">
-                  <div className="p-4 border rounded-lg bg-green-50">
-                    <div className="font-bold text-lg mb-2">あなた (人間)</div>
-                    <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p1} pt</div>
-                    <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p1} / {GAME_RULES.MAX_SHOCKS}</div>
-                  </div>
-                  <div className="p-4 border rounded-lg bg-gray-50">
-                    <div className="font-bold text-lg mb-2">{matchResult.player2.name}</div>
-                    <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p2} pt</div>
-                    <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p2} / {GAME_RULES.MAX_SHOCKS}</div>
-                  </div>
+              <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
+                <div className="mb-6">
+                  <BaseballScoreboard match={matchResult} />
                 </div>
 
                 {matchResult.winner && gameStep === 'IDLE' ? (
@@ -680,9 +683,11 @@ export default function Home() {
                   </div>
                 )}
 
-                <div className="mt-6 border-t pt-6">
-                  <h3 className="text-lg font-bold mb-3 text-gray-800">リアルタイム・スコアボード</h3>
-                  <BaseballScoreboard match={matchResult} />
+                {/* 戻るリンクを最下部に移動 */}
+                <div className="mt-8 text-center border-t pt-4">
+                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">
+                    ロビーへ戻る
+                  </button>
                 </div>
               </div>
             )}
