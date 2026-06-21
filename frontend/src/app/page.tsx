@@ -124,6 +124,8 @@ export default function Home() {
     newShocks: { p1: number; p2: number };
     newLog: GameLog;
   } | null>(null);
+  
+  const [commentary, setCommentary] = useState<string>('');
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -135,7 +137,42 @@ export default function Home() {
     }
   };
 
+  type GameStateInfo = {
+    scores: { p1: number; p2: number };
+    shocks: { p1: number; p2: number };
+    remainingChairs: number[];
+    winner: string;
+  };
+
+  type ActionInfo = {
+    isHumanSetter: boolean;
+    chosenChair: number;
+    isShocked: boolean;
+  };
+
   // TODO: バックエンドAPIに置き換える
+  const fetchCommentary = async (state: GameStateInfo, action: ActionInfo) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const res = await fetch(`${apiUrl}/generate-commentary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameState: state, action })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.commentary) {
+          setCommentary(data.commentary);
+        } else {
+          setCommentary('');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch commentary', e);
+      setCommentary('解説の取得に失敗しました。');
+    }
+  };
+
   const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
@@ -407,6 +444,7 @@ export default function Home() {
                     setHighlightedChair(null);
                     setShockedChair(null);
                     setTempNextState(null);
+                    setCommentary('');
                     setLoading(false);
                   }}
                   disabled={loading}
@@ -437,6 +475,13 @@ export default function Home() {
                         第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
                       </span>
                     </div>
+
+                    {/* 実況エリア */}
+                    {commentary && (
+                      <div className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
+                        {commentary}
+                      </div>
+                    )}
 
                     {/* ゲームステータスメッセージ */}
                     <div className="min-h-[70px] flex items-center justify-center mb-4">
@@ -647,6 +692,22 @@ export default function Home() {
                                     }
                                   }
 
+                                  // 実況の取得開始
+                                  setCommentary('🎙️ 実況AIが状況を分析中...');
+                                  fetchCommentary(
+                                    {
+                                      scores: newScores,
+                                      shocks: newShocks,
+                                      remainingChairs: nextRemainingChairs,
+                                      winner
+                                    },
+                                    {
+                                      isHumanSetter,
+                                      chosenChair: isHumanSetter ? aiChosenChair : chair,
+                                      isShocked
+                                    }
+                                  );
+
                                   // 次の状態を一時的に保存
                                   setTempNextState({
                                     winner,
@@ -701,6 +762,7 @@ export default function Home() {
                             setHighlightedChair(null);
                             setShockedChair(null);
                             setTempNextState(null);
+                            setCommentary('');
                           }}
                           className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-md transition-all scale-105 active:scale-95"
                         >
