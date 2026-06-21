@@ -66,4 +66,32 @@ describe('Backend Handler Specification Tests', () => {
     });
     expect(responseInvalidId.statusCode).toBe(404);
   });
+
+  it('should reset score to 0 when a player gets electric shocked', async () => {
+    const event = {
+      body: JSON.stringify({
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+      }),
+    };
+    
+    const response = await startMatch(event);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    
+    // 対戦ログを巡回し、感電（isShocked: true）したターンの状態を確認
+    for (const log of body.logs) {
+      if (log.isShocked) {
+        if (log.turn % 2 !== 0) {
+          // 奇数ターン：Player 1 (setter) が設置、Player 2 (chooser) が選択
+          // よって、感電した Player 2 のそのターン時点のスコアは 0 になっているべき
+          expect(log.scores.p2).toBe(0);
+        } else {
+          // 偶数ターン：Player 2 (setter) が設置、Player 1 (chooser) が選択
+          // よって、感電した Player 1 のそのターン時点のスコアは 0 になっているべき
+          expect(log.scores.p1).toBe(0);
+        }
+      }
+    }
+  });
 });
