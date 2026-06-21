@@ -101,6 +101,20 @@ export default function Home() {
   
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
 
+  // 人間対AIモードでの演出管理ステート
+  const [gameStep, setGameStep] = useState<'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT'>('IDLE');
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [highlightedChair, setHighlightedChair] = useState<number | null>(null);
+  const [shockedChair, setShockedChair] = useState<number | null>(null);
+  const [tempNextState, setTempNextState] = useState<{
+    winner: string;
+    newScores: { p1: number; p2: number };
+    newShocks: { p1: number; p2: number };
+    newLog: GameLog;
+  } | null>(null);
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
   // TODO: バックエンドAPIに置き換える
   const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
     try {
@@ -360,6 +374,11 @@ export default function Home() {
                     shocks: { p1: 0, p2: 0 },
                     logs: []
                   });
+                  setGameStep('IDLE');
+                  setStatusMessage('');
+                  setHighlightedChair(null);
+                  setShockedChair(null);
+                  setTempNextState(null);
                   setLoading(false);
                 }}
                 disabled={loading}
@@ -384,7 +403,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {matchResult.winner ? (
+                {matchResult.winner && gameStep === 'IDLE' ? (
                   <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
                     <h3 className="text-3xl font-black text-emerald-900 mb-2">WINNER</h3>
                     <p className="text-2xl font-bold text-green-700">
@@ -398,16 +417,27 @@ export default function Home() {
                         第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
                       </span>
                     </div>
-                    <p className="text-lg mb-4 font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm inline-block border border-green-100">
-                      {(() => {
-                        const turn = matchResult.logs.length + 1;
-                        return turn % 2 !== 0 
-                          ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)' 
-                          : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
-                      })()}
-                    </p>
+
+                    {/* ゲームステータスメッセージ */}
+                    <div className="min-h-[70px] flex items-center justify-center mb-4">
+                      <p className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
+                        gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse' : ''
+                      }`}>
+                        {gameStep === 'IDLE' ? (
+                          (() => {
+                            const turn = matchResult.logs.length + 1;
+                            return turn % 2 !== 0 
+                              ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)' 
+                              : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
+                          })()
+                        ) : (
+                          statusMessage
+                        )}
+                      </p>
+                    </div>
+
                     <div className="relative w-80 h-80 mx-auto bg-gray-50 rounded-full border border-gray-200 shadow-inner flex items-center justify-center my-6">
-                      {/* 中央のインジケーター（時計の針の基部） */}
+                      {/* 中央のインジケーター */}
                       <div className="w-4 h-4 bg-gray-300 rounded-full z-10 shadow-sm"></div>
                       
                       {(() => {
@@ -422,23 +452,28 @@ export default function Home() {
                           const left = 50 + radius * Math.cos(angle);
                           const top = 50 + radius * Math.sin(angle);
                           
+                          // 椅子のスタイリングとアニメーションクラスの設定
+                          const chairClass = shockedChair === chair
+                            ? 'bg-red-600 border-red-800 text-white scale-110 animate-ping duration-100'
+                            : highlightedChair === chair
+                            ? 'bg-yellow-400 border-yellow-600 text-yellow-950 scale-110 animate-bounce'
+                            : isAvailable
+                            ? 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-2 border-blue-400 text-blue-800 shadow-md active:scale-95'
+                            : 'bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed opacity-40';
+
                           return (
                             <button
                               key={chair}
-                              disabled={!isAvailable || loading}
+                              disabled={!isAvailable || gameStep !== 'IDLE' || loading}
                               style={{
                                 position: 'absolute',
                                 left: `${left}%`,
                                 top: `${top}%`,
                                 transform: 'translate(-50%, -50%)',
                               }}
-                              className={`w-14 h-14 rounded-full font-bold text-lg flex items-center justify-center transition-all ${
-                                isAvailable
-                                  ? 'bg-blue-100 hover:bg-blue-200 hover:scale-110 border-2 border-blue-400 text-blue-800 shadow-md active:scale-95'
-                                  : 'bg-gray-100 border border-gray-300 text-gray-400 cursor-not-allowed opacity-40'
-                              }`}
+                              className={`w-14 h-14 rounded-full font-bold text-lg flex items-center justify-center transition-all ${chairClass}`}
                               onClick={async () => {
-                                if (loading) return;
+                                if (loading || gameStep !== 'IDLE') return;
                                 setLoading(true);
                                 try {
                                   const turn = matchResult.logs.length + 1;
@@ -451,35 +486,56 @@ export default function Home() {
                                   let isShocked = false;
 
                                   if (isHumanSetter) {
-                                    // Human sets, AI chooses
+                                    // 【人間が仕掛け、AIが選ぶ】
+                                    setHighlightedChair(chair);
+                                    setGameStep('AI_THINKING');
+                                    setStatusMessage(`あなたは ${chair}番の椅子に電流を仕掛けました。AIが座る椅子を選んでいます...`);
+                                    await sleep(1500);
+
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, newShocks.p1);
                                     aiChosenChair = aiRes.chosenChair;
-                                    const humanSetChairs = [chair]; // Human sets 1 chair
+                                    const humanSetChairs = [chair];
                                     
                                     isShocked = humanSetChairs.includes(aiChosenChair);
+
+                                    setGameStep('REVEALING');
+                                    setHighlightedChair(aiChosenChair);
+                                    setStatusMessage(`AIは ${aiChosenChair}番の椅子を選択しました！ 運命の瞬間...`);
+                                    await sleep(1500);
+
+                                    setGameStep('SHOW_RESULT');
                                     if (isShocked) {
+                                      setShockedChair(aiChosenChair);
                                       newShocks.p2 += 1;
                                       newScores.p2 = 0;
-                                      alert(`AIは椅子 ${aiChosenChair} を選び、感電しました！`);
+                                      setStatusMessage(`⚡ ビリビリ！ AIは椅子 ${aiChosenChair} を選び、感電しました！`);
                                     } else {
                                       newScores.p2 += aiChosenChair;
-                                      alert(`AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
+                                      setStatusMessage(`🎉 セーフ！ AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
                                     }
                                     nextRemainingChairs = nextRemainingChairs.filter(c => c !== aiChosenChair);
                                   } else {
-                                    // AI sets, Human chooses
+                                    // 【AIが仕掛け、人間が選ぶ】
+                                    setHighlightedChair(chair);
+                                    setGameStep('REVEALING');
+                                    setStatusMessage(`あなたは ${chair}番の椅子に座ろうとしています... 電流が流れているかチェック中...`);
+                                    await sleep(1500);
+
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, newShocks.p1);
                                     const aiSetChairs = aiRes.setChairs;
                                     const humanChosenChair = chair;
                                     
                                     isShocked = aiSetChairs.includes(humanChosenChair);
+
+                                    setGameStep('SHOW_RESULT');
                                     if (isShocked) {
+                                      setShockedChair(humanChosenChair);
                                       newShocks.p1 += 1;
                                       newScores.p1 = 0;
-                                      alert(`ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
+                                      setStatusMessage(`⚡ ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
                                     } else {
                                       newScores.p1 += humanChosenChair;
-                                      alert(`セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
+                                      setStatusMessage(`🎉 セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
                                     }
                                     nextRemainingChairs = nextRemainingChairs.filter(c => c !== humanChosenChair);
                                   }
@@ -497,28 +553,25 @@ export default function Home() {
                                       winner = newShocks.p1 < newShocks.p2 ? 'human' : matchResult.player2.playerId;
                                     }
                                   }
-                                  
-                                  setMatchResult(prev => {
-                                    if (!prev) return prev;
-                                    const newLog: GameLog = {
+
+                                  // 次の状態を一時的に保存
+                                  setTempNextState({
+                                    winner,
+                                    newScores,
+                                    newShocks,
+                                    newLog: {
                                       turn,
                                       isHumanSetter,
                                       chosenChair: isHumanSetter ? aiChosenChair : chair,
                                       isShocked,
                                       remainingChairs: nextRemainingChairs
-                                    };
-                                    return {
-                                      ...prev,
-                                      winner,
-                                      scores: newScores,
-                                      shocks: newShocks,
-                                      logs: [...prev.logs, newLog]
-                                    };
+                                    }
                                   });
 
                                 } catch (e) {
                                   console.error(e);
-                                  alert('エラーが発生しました');
+                                  setStatusMessage('エラーが発生しました');
+                                  setGameStep('IDLE');
                                 } finally {
                                   setLoading(false);
                                 }
@@ -530,6 +583,34 @@ export default function Home() {
                         });
                       })()}
                     </div>
+
+                    {/* 結果表示および進行ボタン */}
+                    {gameStep === 'SHOW_RESULT' && tempNextState && (
+                      <div className="mt-4 flex flex-col items-center space-y-3 animate-fade-in">
+                        <button
+                          onClick={() => {
+                            setMatchResult(prev => {
+                              if (!prev || !tempNextState) return prev;
+                              return {
+                                ...prev,
+                                winner: tempNextState.winner,
+                                scores: tempNextState.newScores,
+                                shocks: tempNextState.newShocks,
+                                logs: [...prev.logs, tempNextState.newLog]
+                              };
+                            });
+                            // 各種ステートをリセット
+                            setGameStep('IDLE');
+                            setHighlightedChair(null);
+                            setShockedChair(null);
+                            setTempNextState(null);
+                          }}
+                          className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-md transition-all scale-105 active:scale-95"
+                        >
+                          {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
