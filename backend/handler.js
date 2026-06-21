@@ -603,11 +603,21 @@ module.exports.generateCommentary = async (event) => {
     const body = event.body ? JSON.parse(event.body) : {};
     const { gameState, action } = body;
     
+    const generateMockCommentary = () => {
+      if (action && action.isShocked) {
+        return '「おおっと！ここで痛恨のビリビリだあああ！」';
+      } else if (action && action.chosenChair) {
+        return `「${action.chosenChair}番の椅子で勝負に出た！見事セーフ！」`;
+      }
+      return '「熱い戦いが続いています！」';
+    };
+
     if (!process.env.GEMINI_API) {
+      console.warn('GEMINI_API is not configured, returning mock commentary.');
       return { 
-        statusCode: 500, 
+        statusCode: 200, 
         headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
-        body: JSON.stringify({ error: "Gemini API key is not configured" }) 
+        body: JSON.stringify({ commentary: generateMockCommentary() }) 
       };
     }
 
@@ -618,19 +628,31 @@ module.exports.generateCommentary = async (event) => {
 直前のアクション: ${JSON.stringify(action || {})}
 この状況を踏まえて、熱く短く（1〜2文程度で）実況解説をしてください。`;
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt
-    });
+    try {
+      const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt
+      });
 
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
-      },
-      body: JSON.stringify({ commentary: response.text }),
-    };
+      return {
+        statusCode: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ commentary: response.text }),
+      };
+    } catch (apiError) {
+      console.error('Gemini API Error:', apiError);
+      return {
+        statusCode: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ commentary: generateMockCommentary() }),
+      };
+    }
   } catch (error) {
     console.error('Error generating commentary:', error);
     return {
