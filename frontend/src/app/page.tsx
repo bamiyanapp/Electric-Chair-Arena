@@ -176,6 +176,29 @@ export default function Home() {
     }
   };
 
+  const saveMatchToBackend = async (matchData: MatchResult) => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      await fetch(`${apiUrl}/save-match`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId: matchData.matchId,
+          player1Id: matchData.player1.playerId,
+          player2Id: matchData.player2.playerId,
+          winnerId: matchData.winner,
+          scores: matchData.scores,
+          shocks: matchData.shocks,
+          logs: matchData.logs,
+        })
+      });
+    } catch (e) {
+      console.warn('Failed to save match result', e);
+    }
+  };
+
   // 初回データロード（モック）
   useEffect(() => {
     // 実際にはバックエンドの /get-players や /get-leaderboard を叩く
@@ -660,13 +683,17 @@ export default function Home() {
                           onClick={() => {
                             setMatchResult(prev => {
                               if (!prev || !tempNextState) return prev;
-                              return {
+                              const newResult = {
                                 ...prev,
                                 winner: tempNextState.winner,
                                 scores: tempNextState.newScores,
                                 shocks: tempNextState.newShocks,
                                 logs: [...prev.logs, tempNextState.newLog]
                               };
+                              if (tempNextState.winner) {
+                                saveMatchToBackend(newResult);
+                              }
+                              return newResult;
                             });
                             // 各種ステートをリセット
                             setGameStep('IDLE');
