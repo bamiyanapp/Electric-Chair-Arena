@@ -516,7 +516,7 @@ export function HomeContent() {
                       </span>
                     </div>
 
-                    <div className="relative w-80 h-80 mx-auto bg-gray-50 rounded-full border border-gray-200 shadow-inner flex items-center justify-center my-6">
+                    <div className="relative w-80 h-80 mx-auto bg-gray-50 rounded-full border border-gray-200 shadow-inner flex items-center justify-center my-6 overflow-hidden">
                       {/* 中央のインジケーター */}
                       <div className="w-4 h-4 bg-gray-300 rounded-full z-10 shadow-sm"></div>
                       
@@ -755,6 +755,39 @@ export function HomeContent() {
                           );
                         });
                       })()}
+
+                      {/* 結果表示および進行ボタン（オーバーレイ） */}
+                      {gameStep === 'SHOW_RESULT' && tempNextState && (
+                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
+                          <button
+                            onClick={() => {
+                              setMatchResult(prev => {
+                                if (!prev || !tempNextState) return prev;
+                                const newResult = {
+                                  ...prev,
+                                  winner: tempNextState.winner,
+                                  scores: tempNextState.newScores,
+                                  shocks: tempNextState.newShocks,
+                                  logs: [...prev.logs, tempNextState.newLog]
+                                };
+                                if (tempNextState.winner) {
+                                  saveMatchToBackend(newResult);
+                                }
+                                return newResult;
+                              });
+                              // 各種ステートをリセット
+                              setGameStep('IDLE');
+                              setHighlightedChair(null);
+                              setShockedChair(null);
+                              setTempNextState(null);
+                              setCommentary('');
+                            }}
+                            className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                          >
+                            {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* ゲームステータスメッセージ */}
@@ -779,39 +812,6 @@ export function HomeContent() {
                     {commentary && (
                       <div className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
                         {commentary}
-                      </div>
-                    )}
-
-                    {/* 結果表示および進行ボタン */}
-                    {gameStep === 'SHOW_RESULT' && tempNextState && (
-                      <div className="mt-4 flex flex-col items-center space-y-3 animate-fade-in">
-                        <button
-                          onClick={() => {
-                            setMatchResult(prev => {
-                              if (!prev || !tempNextState) return prev;
-                              const newResult = {
-                                ...prev,
-                                winner: tempNextState.winner,
-                                scores: tempNextState.newScores,
-                                shocks: tempNextState.newShocks,
-                                logs: [...prev.logs, tempNextState.newLog]
-                              };
-                              if (tempNextState.winner) {
-                                saveMatchToBackend(newResult);
-                              }
-                              return newResult;
-                            });
-                            // 各種ステートをリセット
-                            setGameStep('IDLE');
-                            setHighlightedChair(null);
-                            setShockedChair(null);
-                            setTempNextState(null);
-                            setCommentary('');
-                          }}
-                          className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-md transition-all scale-105 active:scale-95"
-                        >
-                          {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
-                        </button>
                       </div>
                     )}
                   </div>
