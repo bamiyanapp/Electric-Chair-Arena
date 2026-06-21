@@ -308,8 +308,16 @@ export default function Home() {
             </div>
             
             <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl mb-6 border border-blue-100 text-center">
-              <h3 className="text-3xl font-black text-indigo-900 mb-2">WINNER</h3>
-              <p className="text-2xl font-bold text-blue-700">{players.find(p => p.playerId === matchResult.winner)?.name}</p>
+              <h3 className="text-3xl font-black text-indigo-900 mb-2">
+                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+              </h3>
+              <p className="text-2xl font-bold text-blue-700">
+                {matchResult.winner === 'draw' 
+                  ? '引き分け' 
+                  : matchResult.winner === 'human' 
+                    ? 'あなた (人間)' 
+                    : players.find(p => p.playerId === matchResult.winner)?.name}
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-center mb-8">
@@ -463,9 +471,15 @@ export default function Home() {
 
                 {matchResult.winner && gameStep === 'IDLE' ? (
                   <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
-                    <h3 className="text-3xl font-black text-emerald-900 mb-2">WINNER</h3>
+                    <h3 className="text-3xl font-black text-emerald-900 mb-2">
+                      {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+                    </h3>
                     <p className="text-2xl font-bold text-green-700">
-                      {matchResult.winner === 'human' ? 'あなた (人間)' : matchResult.player2.name}
+                      {matchResult.winner === 'draw' 
+                        ? '引き分け' 
+                        : matchResult.winner === 'human' 
+                          ? 'あなた (人間)' 
+                          : matchResult.player2.name}
                     </p>
                   </div>
                 ) : (
@@ -688,7 +702,11 @@ export default function Home() {
                                     if (newScores.p1 !== newScores.p2) {
                                       winner = newScores.p1 > newScores.p2 ? 'human' : matchResult.player2.playerId;
                                     } else {
-                                      winner = newShocks.p1 < newShocks.p2 ? 'human' : matchResult.player2.playerId;
+                                      if (newShocks.p1 !== newShocks.p2) {
+                                        winner = newShocks.p1 < newShocks.p2 ? 'human' : matchResult.player2.playerId;
+                                      } else {
+                                        winner = 'draw';
+                                      }
                                     }
                                   }
 

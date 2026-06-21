@@ -365,28 +365,50 @@ module.exports.startMatch = async (event) => {
       if (scores.p1 !== scores.p2) {
         winnerId = scores.p1 > scores.p2 ? p1.playerId : p2.playerId;
       } else {
-        winnerId = shocks.p1 < shocks.p2 ? p1.playerId : p2.playerId;
+        if (shocks.p1 !== shocks.p2) {
+          winnerId = shocks.p1 < shocks.p2 ? p1.playerId : p2.playerId;
+        } else {
+          winnerId = 'draw';
+        }
       }
     }
 
-    const loserId = winnerId === p1.playerId ? p2.playerId : p1.playerId;
-    const winner = playersDb.find(p => p.playerId === winnerId);
-    const loser = playersDb.find(p => p.playerId === loserId);
-
-    // ELOレーティング更新
+    let winner = null;
+    let ratingDiff = 0;
     const kFactor = 32;
-    const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
-    const ratingDiff = Math.round(kFactor * (1 - expectedWinner));
 
-    winner.rating += ratingDiff;
-    loser.rating -= ratingDiff;
+    if (winnerId !== 'draw') {
+      const loserId = winnerId === p1.playerId ? p2.playerId : p1.playerId;
+      winner = playersDb.find(p => p.playerId === winnerId);
+      const loser = playersDb.find(p => p.playerId === loserId);
 
-    winner.winCount += 1;
-    winner.matchCount += 1;
-    loser.matchCount += 1;
+      // ELOレーティング更新
+      const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
+      ratingDiff = Math.round(kFactor * (1 - expectedWinner));
 
-    winner.updatedAt = new Date().toISOString();
-    loser.updatedAt = new Date().toISOString();
+      winner.rating += ratingDiff;
+      loser.rating -= ratingDiff;
+
+      winner.winCount += 1;
+      winner.matchCount += 1;
+      loser.matchCount += 1;
+
+      winner.updatedAt = new Date().toISOString();
+      loser.updatedAt = new Date().toISOString();
+    } else {
+      // 引き分け
+      const expectedP1 = 1 / (1 + Math.pow(10, (p2.rating - p1.rating) / 400));
+      const p1Diff = Math.round(kFactor * (0.5 - expectedP1));
+      
+      p1.rating += p1Diff;
+      p2.rating -= p1Diff;
+
+      p1.matchCount += 1;
+      p2.matchCount += 1;
+
+      p1.updatedAt = new Date().toISOString();
+      p2.updatedAt = new Date().toISOString();
+    }
 
     const matchId = `match-${Date.now()}`;
     const newMatch = {
@@ -411,8 +433,8 @@ module.exports.startMatch = async (event) => {
         matchId,
         player1: p1,
         player2: p2,
-        winner: winner.name,
-        ratingDiff,
+        winner: winnerId === 'draw' ? 'draw' : winner.name,
+        ratingDiff: Math.abs(ratingDiff),
         scores,
         shocks,
         logs,
@@ -517,11 +539,12 @@ module.exports.saveMatch = async (event) => {
     if (player1Id === 'human' && player2Id !== 'human') {
       const aiPlayer = p2;
       const isAiWinner = winnerId === aiPlayer.playerId;
+      const isDraw = winnerId === 'draw';
       const humanRating = 1500;
       
       const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
       const kFactor = 32;
-      const actualAi = isAiWinner ? 1 : 0;
+      const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
       ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
       
       aiPlayer.rating += ratingDiff;
@@ -531,11 +554,12 @@ module.exports.saveMatch = async (event) => {
     } else if (player2Id === 'human' && player1Id !== 'human') {
       const aiPlayer = p1;
       const isAiWinner = winnerId === aiPlayer.playerId;
+      const isDraw = winnerId === 'draw';
       const humanRating = 1500;
       
       const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
       const kFactor = 32;
-      const actualAi = isAiWinner ? 1 : 0;
+      const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
       ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
       
       aiPlayer.rating += ratingDiff;
