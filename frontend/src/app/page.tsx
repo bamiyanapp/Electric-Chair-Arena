@@ -761,6 +761,7 @@ export function HomeContent() {
                         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
                           <button
                             onClick={() => {
+                              let isGameOver = false;
                               setMatchResult(prev => {
                                 if (!prev || !tempNextState) return prev;
                                 const newResult = {
@@ -772,6 +773,7 @@ export function HomeContent() {
                                 };
                                 if (tempNextState.winner) {
                                   saveMatchToBackend(newResult);
+                                  isGameOver = true;
                                 }
                                 return newResult;
                               });
@@ -781,6 +783,9 @@ export function HomeContent() {
                               setShockedChair(null);
                               setTempNextState(null);
                               setCommentary('');
+                              if (isGameOver) {
+                                setCurrentView('RESULT');
+                              }
                             }}
                             className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
                           >

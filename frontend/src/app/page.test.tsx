@@ -10,6 +10,15 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),
 }));
 
+vi.mock('@/constants/rules', () => ({
+  GAME_RULES: {
+    TOTAL_CHAIRS: 5,
+    WINNING_SCORE: 10,
+    MAX_SHOCKS: 2,
+    MIN_CHAIRS_TO_END: 0,
+  }
+}));
+
 describe('Home Component', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let mockPush: any;
@@ -80,7 +89,7 @@ describe('Home Component', () => {
     });
 
     window.Audio = vi.fn().mockImplementation(() => ({
-      play: vi.fn().mockResolvedValue(undefined),
+      play: vi.fn().mockRejectedValue(new Error('play error')),
     })) as unknown as typeof Audio;
 
     global.fetch = vi.fn((url: string | Request | URL) => {
@@ -187,25 +196,78 @@ describe('Home Component', () => {
     fireEvent.click(chairBtns[0]); // 仕掛ける
 
     await waitFor(() => {
-      expect(screen.getAllByText('次のターンへ', { exact: false }).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/最終結果を見る|次のターンへ/)[0]).toBeDefined();
+    });
+  });
+
+  it('plays game until end and tests various conditions', async () => {
+    let aiMoveCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        aiMoveCount++;
+        if (aiMoveCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 1, setChairs: [] }) } as Response);
+        if (aiMoveCount === 2) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [3] }) } as Response);
+        if (aiMoveCount === 3) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 2, setChairs: [] }) } as Response);
+      }
+      if (urlStr.includes('save-match')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn 1: Human sets 1, AI chooses 1 -> AI shocked
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
     });
     
+    const chairBtns1 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'));
+    fireEvent.click(chairBtns1[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
     fireEvent.click(screen.getAllByText('次のターンへ')[0]);
 
-    // Turn 2
+    // Turn 2: AI sets 3, Human chooses 4 -> Human safe
     await waitFor(() => {
-      expect(screen.getAllByText('あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)', { exact: false }).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
     });
 
-    const chairBtns2 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
-    fireEvent.click(chairBtns2[0]); // 座る（感電する）
+    const chairBtns2 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#4'));
+    fireEvent.click(chairBtns2[0]);
 
     await waitFor(() => {
-      expect(screen.getAllByText('次のターンへ', { exact: false }).length).toBeGreaterThan(0);
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
     });
-    
-    // API mock error test coverage check
-    global.fetch = vi.fn().mockRejectedValue(new Error('API error'));
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn 3: Human sets 2, AI chooses 2 -> AI shocked (AI shocks = 2 -> GAME OVER)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns3 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns3[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+
+    // 結果画面が表示されるか
+    await waitFor(() => {
+      expect(screen.getAllByText('WINNER')[0]).toBeDefined();
+      expect(screen.getAllByText('あなた (人間)')[0]).toBeDefined();
+    });
   });
 
   it('renders Home wrapper component', () => {
@@ -213,6 +275,49 @@ describe('Home Component', () => {
     expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
   });
   
+  it('covers error handling in fetch functions', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    
+    render(<HomeContent />);
+    const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
+    fireEvent.click(btn);
+    
+    await waitFor(() => {
+      expect(screen.getAllByText('過去の対戦記録がありません。').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('covers fallback in getAiMoveMock', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    // GAME画面の「ロビーへ戻る」をクリックしてカバーする
+    fireEvent.click(screen.getAllByText('ロビーへ戻る')[0]);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    // selectのonChangeをカバーする
+    const select = screen.getByRole('combobox');
+    fireEvent.change(select, { target: { value: 'ai-random' } });
+    
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    
+    const chairBtns1 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'));
+    fireEvent.click(chairBtns1[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/次のターンへ|最終結果を見る/)[0]).toBeDefined();
+    });
+  });
+
   it('navigates via URL param', () => {
     mockGet.mockReturnValue('SCOREBOARDS');
     render(<HomeContent />);
