@@ -88,12 +88,11 @@ function BaseballScoreboard({ match }: { match: MatchResult }) {
 }
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<'LOBBY' | 'SIMULATOR' | 'RESULT' | 'GAME' | 'LEADERBOARD'>('LOBBY');
+  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD'>('LOBBY');
   
   const [players, setPlayers] = useState<Player[]>([]);
   const [leaderboard, setLeaderboard] = useState<Player[]>([]);
   
-  const [player1Id, setPlayer1Id] = useState<string>('');
   const [player2Id, setPlayer2Id] = useState<string>('');
   
   const [loading, setLoading] = useState(false);
@@ -164,40 +163,9 @@ export default function Home() {
     setLeaderboard([...mockPlayers].sort((a, b) => b.rating - a.rating));
     
     if (mockPlayers.length >= 2) {
-      setPlayer1Id(mockPlayers[0].playerId);
       setPlayer2Id(mockPlayers[1].playerId);
     }
   }, []);
-
-  const handleSimulate = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const p1 = players.find(p => p.playerId === player1Id);
-      const p2 = players.find(p => p.playerId === player2Id);
-      
-      if (!p1 || !p2) throw new Error('Player not found');
-
-      // 本来はバックエンドの /start-match エンドポイントを叩くが、モックで代替
-      const mockResult: MatchResult = {
-        matchId: `match-${Date.now()}`,
-        player1: p1,
-        player2: p2,
-        winner: p2.playerId,
-        ratingDiff: 15,
-        scores: { p1: 20, p2: 40 },
-        shocks: { p1: 1, p2: 0 },
-        logs: []
-      };
-
-      setMatchResult(mockResult);
-      setCurrentView('RESULT');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const isGameActive = currentView === 'GAME' && matchResult && matchResult.matchId.startsWith('match-human-');
 
@@ -214,11 +182,7 @@ export default function Home() {
 
         {currentView === 'LOBBY' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button onClick={() => setCurrentView('SIMULATOR')} className="p-6 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition">
-                <h3 className="text-xl font-bold mb-2">マッチシミュレーター</h3>
-                <p className="text-sm opacity-90">AI同士の対戦をシミュレーションします</p>
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button onClick={() => setCurrentView('GAME')} className="p-6 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition">
                 <h3 className="text-xl font-bold mb-2">人間対AI</h3>
                 <p className="text-sm opacity-90">あなたがAIと対戦します</p>
@@ -242,51 +206,6 @@ export default function Home() {
               </div>
             </section>
           </div>
-        )}
-
-        {currentView === 'SIMULATOR' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">マッチシミュレーター</h2>
-              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Player 1 (先攻)</label>
-                <select
-                  value={player1Id}
-                  onChange={(e) => setPlayer1Id(e.target.value)}
-                  className="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                >
-                  {players.map(p => (
-                    <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Player 2 (後攻)</label>
-                <select
-                  value={player2Id}
-                  onChange={(e) => setPlayer2Id(e.target.value)}
-                  className="w-full border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border"
-                >
-                  {players.map(p => (
-                    <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="mt-8 flex justify-center">
-              <button
-                onClick={handleSimulate}
-                disabled={loading}
-                className="px-8 py-3 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
-              >
-                {loading ? '対戦実行中...' : '対戦開始'}
-              </button>
-            </div>
-            {error && <p className="mt-4 text-red-600 text-center">{error}</p>}
-          </section>
         )}
 
         {currentView === 'RESULT' && matchResult && (
