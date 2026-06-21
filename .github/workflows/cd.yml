@@ -7,16 +7,14 @@ on:
       - main
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build-frontend:
+  deploy-frontend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,24 +31,11 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: 🚀 Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: frontend/out
-
-  deploy-frontend:
-    needs: build-frontend
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: 🚀 Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-      - name: Show GitHub Pages URL
-        run: |
-          echo "Pages URL: ${{ steps.deployment.outputs.page_url }}"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: frontend/out
 
   deploy-backend:
     runs-on: ubuntu-latest
