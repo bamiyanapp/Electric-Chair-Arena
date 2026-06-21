@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ハンコマスター検定",
-  description: "日本の伝統的なマナー、ハンコ捺印の極意を学ぶ。",
+  title: "Electric Chair Arena",
+  description: "AIプレイヤー対戦シミュレーター",
 };
 
 export default function RootLayout({
