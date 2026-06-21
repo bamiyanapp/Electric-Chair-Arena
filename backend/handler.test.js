@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getPlayers, startMatch, getMatchResult, getLeaderboard } from './handler.js';
+import { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches } from './handler.js';
 
 describe('Backend Handler Specification Tests', () => {
   it('should get players list properly', async () => {
@@ -55,6 +55,13 @@ describe('Backend Handler Specification Tests', () => {
     const resultBody = JSON.parse(resultResponse.body);
     expect(resultBody.match.matchId).toBe(body.matchId);
     expect(resultBody.match.player1Id).toBe('ai-okano');
+  });
+
+  it('should get matches list properly', async () => {
+    const response = await getMatches({});
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.matches).toBeInstanceOf(Array);
   });
 
   it('should fail getMatchResult if matchId is missing or invalid', async () => {

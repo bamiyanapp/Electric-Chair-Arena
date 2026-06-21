@@ -18,6 +18,8 @@ type GameLog = {
   chosenChair: number;
   isShocked: boolean;
   remainingChairs: number[];
+  scores?: { p1: number; p2: number };
+  shocks?: { p1: number; p2: number };
 };
 
 type MatchResult = {
@@ -28,6 +30,16 @@ type MatchResult = {
   ratingDiff: number;
   scores: { p1: number; p2: number };
   shocks: { p1: number; p2: number };
+  logs: GameLog[];
+};
+
+type MatchRecord = {
+  matchId: string;
+  player1Id: string;
+  player2Id: string;
+  winnerId: string;
+  ratingDiff: number;
+  createdAt: string;
   logs: GameLog[];
 };
 
@@ -88,10 +100,11 @@ function BaseballScoreboard({ match }: { match: MatchResult }) {
 }
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD'>('LOBBY');
+  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | 'SCOREBOARDS'>('LOBBY');
   
   const [players, setPlayers] = useState<Player[]>([]);
   const [leaderboard, setLeaderboard] = useState<Player[]>([]);
+  const [matchesList, setMatchesList] = useState<MatchRecord[]>([]);
   
   const [player2Id, setPlayer2Id] = useState<string>('');
   
@@ -149,6 +162,20 @@ export default function Home() {
     };
   };
 
+  const fetchMatches = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const res = await fetch(`${apiUrl}/get-matches`);
+      if (res.ok) {
+        const data = await res.json();
+        setMatchesList(data.matches || []);
+      }
+    } catch (e) {
+      console.warn('API call failed', e);
+      setMatchesList([]); // APIが呼べない場合は空配列
+    }
+  };
+
   // 初回データロード（モック）
   useEffect(() => {
     // 実際にはバックエンドの /get-players や /get-leaderboard を叩く
@@ -190,6 +217,10 @@ export default function Home() {
               <button onClick={() => setCurrentView('LEADERBOARD')} className="p-6 bg-purple-600 text-white rounded-xl shadow hover:bg-purple-700 transition">
                 <h3 className="text-xl font-bold mb-2">ランキング</h3>
                 <p className="text-sm opacity-90">AIプレイヤーのレーティングランキング</p>
+              </button>
+              <button onClick={() => { fetchMatches(); setCurrentView('SCOREBOARDS'); }} className="p-6 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition md:col-span-2">
+                <h3 className="text-xl font-bold mb-2">過去のスコアボード一覧</h3>
+                <p className="text-sm opacity-90">これまでの対戦履歴とスコアボードを確認します</p>
               </button>
             </div>
             
@@ -266,6 +297,42 @@ export default function Home() {
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {currentView === 'SCOREBOARDS' && (
+          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold">過去のスコアボード一覧</h2>
+              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+            </div>
+            
+            {matchesList.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">過去の対戦記録がありません。</p>
+            ) : (
+              <div className="space-y-8">
+                {matchesList.map(m => {
+                  // BaseballScoreboardコンポーネントのPropsに合わせるため、一部データをモックで補完
+                  const mockMatchResult: MatchResult = {
+                    matchId: m.matchId,
+                    player1: players.find(p => p.playerId === m.player1Id) || { playerId: m.player1Id, name: m.player1Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
+                    player2: players.find(p => p.playerId === m.player2Id) || { playerId: m.player2Id, name: m.player2Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
+                    winner: m.winnerId,
+                    ratingDiff: m.ratingDiff,
+                    scores: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].scores || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
+                    shocks: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].shocks || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
+                    logs: m.logs || []
+                  };
+
+                  return (
+                    <div key={m.matchId} className="border rounded-lg p-4 bg-gray-50 shadow-sm">
+                      <div className="text-sm text-gray-500 mb-2">Match ID: {m.matchId} | Date: {new Date(m.createdAt).toLocaleString()}</div>
+                      <BaseballScoreboard match={mockMatchResult} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
 
