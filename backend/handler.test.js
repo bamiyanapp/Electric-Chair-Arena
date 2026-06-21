@@ -147,7 +147,7 @@ describe('Backend Handler Specification Tests', () => {
   });
 
   it('should handle generateCommentary correctly (no API key scenario)', async () => {
-    // Without GEMINI_API it returns 500
+    // Without GEMINI_API it returns 200 with mock commentary
     const originalEnv = process.env.GEMINI_API;
     delete process.env.GEMINI_API;
     
@@ -157,7 +157,7 @@ describe('Backend Handler Specification Tests', () => {
         action: {}
       })
     });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     
     process.env.GEMINI_API = originalEnv || 'dummy-key';
     
@@ -172,7 +172,7 @@ describe('Backend Handler Specification Tests', () => {
       });
       // Depending on the key, it could be 500 or 200
       expect([200, 500]).toContain(res2.statusCode);
-    } catch (_e) {
+    } catch {
       // Ignore
     }
   });
