@@ -115,6 +115,13 @@ export default function Home() {
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+  const playSound = (src: string) => {
+    if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
+      const audio = new Audio(src);
+      audio.play().catch(err => console.warn('Audio play failed:', err));
+    }
+  };
+
   // TODO: バックエンドAPIに置き換える
   const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
     try {
@@ -540,6 +547,7 @@ export default function Home() {
                               className={`w-14 h-14 rounded-full font-bold flex items-center justify-center transition-all duration-300 ${chairClass}`}
                               onClick={async () => {
                                 if (loading || gameStep !== 'IDLE') return;
+                                playSound('/fix.mp3');
                                 setLoading(true);
                                 try {
                                   const turn = matchResult.logs.length + 1;
@@ -559,6 +567,7 @@ export default function Home() {
                                     await sleep(1500);
 
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, newShocks.p1);
+                                    playSound('/fix.mp3');
                                     aiChosenChair = aiRes.chosenChair;
                                     const humanSetChairs = [chair];
                                     
@@ -574,9 +583,11 @@ export default function Home() {
                                       setShockedChair(aiChosenChair);
                                       newShocks.p2 += 1;
                                       newScores.p2 = 0;
+                                      playSound('/Electric_Shock.mp3');
                                       setStatusMessage(`⚡ ビリビリ！ AIは椅子 ${aiChosenChair} を選び、感電しました！`);
                                     } else {
                                       newScores.p2 += aiChosenChair;
+                                      playSound('/success.mp3');
                                       setStatusMessage(`🎉 セーフ！ AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
                                     }
                                     nextRemainingChairs = nextRemainingChairs.filter(c => c !== aiChosenChair);
@@ -588,6 +599,7 @@ export default function Home() {
                                     await sleep(1500);
 
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, newShocks.p1);
+                                    playSound('/fix.mp3');
                                     const aiSetChairs = aiRes.setChairs;
                                     const humanChosenChair = chair;
                                     
@@ -598,9 +610,11 @@ export default function Home() {
                                       setShockedChair(humanChosenChair);
                                       newShocks.p1 += 1;
                                       newScores.p1 = 0;
+                                      playSound('/Electric_Shock.mp3');
                                       setStatusMessage(`⚡ ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
                                     } else {
                                       newScores.p1 += humanChosenChair;
+                                      playSound('/success.mp3');
                                       setStatusMessage(`🎉 セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
                                     }
                                     nextRemainingChairs = nextRemainingChairs.filter(c => c !== humanChosenChair);
