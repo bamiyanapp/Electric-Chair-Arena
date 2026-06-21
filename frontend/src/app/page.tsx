@@ -44,7 +44,7 @@ type MatchRecord = {
 };
 
 function BaseballScoreboard({ match }: { match: MatchResult }) {
-  const maxInnings = 9;
+  const maxInnings = Math.max(1, Math.ceil((match.logs.length + 1) / 2));
   const innings = Array.from({ length: maxInnings }, (_, i) => i + 1);
 
   const getScoreForTurn = (turnNum: number) => {
