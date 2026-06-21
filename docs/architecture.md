@@ -46,5 +46,23 @@ graph TD
 ```
 
 ## 5. デプロイフロー
-1. Serverless Framework (`sls deploy`) により AWS リソース（Lambda, API Gateway, DynamoDB）を構築。
-2. フロントエンドは別途ホスティング環境（Vercel, GitHub Pages等）へデプロイ。
+
+### 5.1 ローカル環境でのデプロイ・実行
+ローカルで開発・テストを行うための手順は以下の通り。
+
+1. **バックエンド**:
+   - `backend` ディレクトリにて、Serverless Offline および DynamoDB Local を利用してローカル環境でAPIとDBを立ち上げる。
+   - 必要な依存関係をインストールする: `npm install`
+   - ローカル環境を起動する: `npx serverless offline start`
+2. **フロントエンド**:
+   - `frontend` ディレクトリにて、Next.jsの開発サーバーを立ち上げる。
+   - 必要な依存関係をインストールする: `npm install`
+   - 開発サーバーを起動する: `npm run dev`
+   - ブラウザで `http://localhost:3000` にアクセスし、動作確認を行う。
+
+### 5.2 リモート（本番）環境へのデプロイ
+1. **バックエンド**:
+   - Serverless Framework (`sls deploy`) により AWS リソース（Lambda, API Gateway, DynamoDB）を構築し、APIエンドポイントを発行する。
+2. **フロントエンド**:
+   - Vercel, GitHub Pages 等のホスティング環境へデプロイする。
+   - デプロイ時に環境変数 (`NEXT_PUBLIC_API_URL`等) でリモートのAPIエンドポイントを指定する。
