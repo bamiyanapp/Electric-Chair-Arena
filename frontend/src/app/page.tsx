@@ -129,7 +129,8 @@ export default function Home() {
 
   const playSound = (src: string) => {
     if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
-      const audio = new Audio(src);
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+      const audio = new Audio(`${basePath}${src}`);
       audio.play().catch(err => console.warn('Audio play failed:', err));
     }
   };
