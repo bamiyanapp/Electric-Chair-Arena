@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { GAME_RULES } from '@/constants/rules';
 
 type Player = {
@@ -87,8 +88,45 @@ function BaseballScoreboard({ match }: { match: MatchResult }) {
   );
 }
 
-export default function Home() {
-  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD'>('LOBBY');
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const viewParam = searchParams.get('view')?.toUpperCase() as 'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD' | undefined;
+  const initialView = viewParam && ['LOBBY', 'RESULT', 'GAME', 'LEADERBOARD'].includes(viewParam) 
+    ? viewParam 
+    : 'LOBBY';
+
+  const [currentView, setCurrentView] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'LEADERBOARD'>(initialView);
+
+  // currentViewが変更されたらURLを更新する
+  useEffect(() => {
+    const currentParam = searchParams.get('view')?.toUpperCase();
+    if (currentView !== 'LOBBY' || currentParam) {
+      // 既存のクエリパラメータを維持しつつ view を更新
+      const params = new URLSearchParams(searchParams.toString());
+      if (currentView === 'LOBBY') {
+        params.delete('view');
+      } else {
+        params.set('view', currentView.toLowerCase());
+      }
+      const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+      // 履歴を追加して画面遷移として扱えるようにする
+      router.push(newUrl);
+    }
+  }, [currentView, pathname, router, searchParams]);
+
+  // URLの戻る/進む（popstate等）に対応するため、URLパラメータから状態を同期
+  useEffect(() => {
+    if (viewParam && ['LOBBY', 'RESULT', 'GAME', 'LEADERBOARD'].includes(viewParam)) {
+      if (currentView !== viewParam) {
+        setCurrentView(viewParam);
+      }
+    } else if (!viewParam && currentView !== 'LOBBY') {
+      setCurrentView('LOBBY');
+    }
+  }, [viewParam]);
   
   const [players, setPlayers] = useState<Player[]>([]);
   const [leaderboard, setLeaderboard] = useState<Player[]>([]);
@@ -629,5 +667,13 @@ export default function Home() {
 
       </div>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500">Loading...</div>}>
+      <HomeContent />
+    </Suspense>
   );
 }
