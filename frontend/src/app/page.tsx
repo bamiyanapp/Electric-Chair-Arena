@@ -490,31 +490,6 @@ export default function Home() {
                       </span>
                     </div>
 
-                    {/* 実況エリア */}
-                    {commentary && (
-                      <div className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
-                        {commentary}
-                      </div>
-                    )}
-
-                    {/* ゲームステータスメッセージ */}
-                    <div className="min-h-[70px] flex items-center justify-center mb-4">
-                      <p className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
-                        gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse' : ''
-                      }`}>
-                        {gameStep === 'IDLE' ? (
-                          (() => {
-                            const turn = matchResult.logs.length + 1;
-                            return turn % 2 !== 0 
-                              ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)' 
-                              : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
-                          })()
-                        ) : (
-                          statusMessage
-                        )}
-                      </p>
-                    </div>
-
                     <div className="relative w-80 h-80 mx-auto bg-gray-50 rounded-full border border-gray-200 shadow-inner flex items-center justify-center my-6">
                       {/* 中央のインジケーター */}
                       <div className="w-4 h-4 bg-gray-300 rounded-full z-10 shadow-sm"></div>
@@ -755,6 +730,31 @@ export default function Home() {
                         });
                       })()}
                     </div>
+
+                    {/* ゲームステータスメッセージ */}
+                    <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
+                      <p className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
+                        gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse' : ''
+                      }`}>
+                        {gameStep === 'IDLE' ? (
+                          (() => {
+                            const turn = matchResult.logs.length + 1;
+                            return turn % 2 !== 0 
+                              ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)' 
+                              : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
+                          })()
+                        ) : (
+                          statusMessage
+                        )}
+                      </p>
+                    </div>
+
+                    {/* 実況エリア */}
+                    {commentary && (
+                      <div className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
+                        {commentary}
+                      </div>
+                    )}
 
                     {/* 結果表示および進行ボタン */}
                     {gameStep === 'SHOW_RESULT' && tempNextState && (
