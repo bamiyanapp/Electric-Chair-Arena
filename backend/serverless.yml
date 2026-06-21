@@ -6,6 +6,8 @@ provider:
   name: aws
   runtime: nodejs18.x
   region: ap-northeast-1
+  environment:
+    GEMINI_API: ${env:GEMINI_API, ''}
 
 functions:
   getPlayers:
@@ -49,6 +51,12 @@ functions:
     events:
       - http:
           path: save-match
+          method: post
+  generateCommentary:
+    handler: handler.generateCommentary
+    events:
+      - http:
+          path: generate-commentary
           method: post
 
 plugins:

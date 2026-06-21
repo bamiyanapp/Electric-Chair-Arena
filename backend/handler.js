@@ -1,6 +1,7 @@
 'use strict';
 
 const { GAME_RULES } = require('./rules.js');
+const { GoogleGenAI } = require('@google/genai');
 
 // AIプレイヤーの初期データ
 const initialPlayers = [
@@ -425,6 +426,52 @@ module.exports.startMatch = async (event) => {
         'Access-Control-Allow-Credentials': true,
       },
       body: JSON.stringify({ error: error.message }),
+    };
+  }
+};
+
+module.exports.generateCommentary = async (event) => {
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { gameState, action } = body;
+    
+    if (!process.env.GEMINI_API) {
+      return { 
+        statusCode: 500, 
+        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+        body: JSON.stringify({ error: "Gemini API key is not configured" }) 
+      };
+    }
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
+
+    const prompt = `あなたは「ビリビリ椅子取りゲーム」の実況解説者です。
+現在のゲームの状況: ${JSON.stringify(gameState || {})}
+直前のアクション: ${JSON.stringify(action || {})}
+この状況を踏まえて、熱く短く（1〜2文程度で）実況解説をしてください。`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
+    });
+
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ commentary: response.text }),
+    };
+  } catch (error) {
+    console.error('Error generating commentary:', error);
+    return {
+      statusCode: 500,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Credentials': true,
+      },
+      body: JSON.stringify({ error: 'Failed to generate commentary' }),
     };
   }
 };

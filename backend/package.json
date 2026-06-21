@@ -8,13 +8,16 @@
     "test": "vitest run --coverage"
   },
   "devDependencies": {
-    "vitest": "^3.0.0",
+    "@eslint/js": "^9.0.0",
     "@vitest/coverage-v8": "^3.0.0",
     "eslint": "^9.0.0",
-    "@eslint/js": "^9.0.0",
     "globals": "^15.0.0",
     "serverless": "^3.39.0",
     "serverless-dynamodb-local": "^0.2.40",
-    "serverless-offline": "^14.7.3"
+    "serverless-offline": "^14.7.3",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@google/genai": "^2.9.0"
   }
 }
