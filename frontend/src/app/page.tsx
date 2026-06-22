@@ -758,7 +758,7 @@ export function HomeContent() {
 
                       {/* 結果表示および進行ボタン（オーバーレイ） */}
                       {gameStep === 'SHOW_RESULT' && tempNextState && (
-                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-[1px] rounded-full animate-fade-in">
+                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
                           <button
                             onClick={() => {
                               let isGameOver = false;
