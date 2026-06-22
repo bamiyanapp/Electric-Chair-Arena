@@ -5,8 +5,11 @@ export const metadata: Metadata = {
   title: "Electric Chair Arena",
   description: "AIプレイヤー対戦シミュレーター",
   icons: {
-    icon: '/icon.png',
-    apple: '/icon.png',
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon2.png', type: 'image/png' }
+    ],
+    apple: '/icon2.png',
   },
 };
 
