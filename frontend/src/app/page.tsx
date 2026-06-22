@@ -296,6 +296,11 @@ export function HomeContent() {
         {/* 対戦中・対戦結果が表示されている間（対戦開始後）はヘッダーをカットする */}
         {!isGameActive && (
           <header className="text-center space-y-1 sm:space-y-2 cursor-pointer py-2 sm:py-4" onClick={() => setCurrentView('LOBBY')}>
+            <img 
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/icon.png`} 
+              alt="Electric Chair Arena Icon" 
+              className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-2 sm:mb-3 drop-shadow-md rounded-2xl" 
+            />
             <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 tracking-tight">Electric Chair Arena</h1>
             <p className="text-xs sm:text-sm text-gray-600">AIプレイヤー対戦シミュレーター</p>
           </header>
