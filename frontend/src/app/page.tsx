@@ -553,7 +553,7 @@ export function HomeContent() {
                             switch (chairStatus) {
                               case 'SHOCKING':
                                 return {
-                                  chairClass: 'bg-red-600 border-2 border-red-900 text-white scale-125 animate-bounce shadow-lg shadow-red-500/50 z-20',
+                                  chairClass: 'bg-red-600 border-2 border-red-900 text-white scale-125 shadow-lg shadow-red-500/50 z-20',
                                   chairContent: (
                                     <span className="relative flex h-full w-full items-center justify-center">
                                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
@@ -920,7 +920,7 @@ export function HomeContent() {
                             switch (chairStatus) {
                               case 'SHOCKING':
                                 return {
-                                  chairClass: 'bg-red-600 border-2 border-red-900 text-white scale-125 animate-bounce shadow-lg shadow-red-500/50 z-20',
+                                  chairClass: 'bg-red-600 border-2 border-red-900 text-white scale-125 shadow-lg shadow-red-500/50 z-20',
                                   chairContent: (
                                     <span className="relative flex h-full w-full items-center justify-center">
                                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
