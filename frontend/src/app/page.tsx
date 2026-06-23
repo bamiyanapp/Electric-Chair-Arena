@@ -239,14 +239,80 @@ export function HomeContent() {
       if (res.ok) {
         const data = await res.json();
         setMatchesList(data.matches || []);
+        return;
       }
     } catch (e) {
-      console.warn('API call failed', e);
-      setMatchesList([]); // APIが呼べない場合は空配列
+      console.warn('API call failed, fallback to local storage', e);
+    }
+    
+    // APIが呼べない場合はLocalStorageから取得
+    try {
+      const localMatches = localStorage.getItem('electric_chair_matches');
+      if (localMatches) {
+        setMatchesList(JSON.parse(localMatches));
+      } else {
+        // 初期モックデータ
+        const mockMatches: MatchRecord[] = [
+          {
+            matchId: 'match-1718970000000',
+            player1Id: 'ai-okano',
+            player2Id: 'ai-junior',
+            winnerId: 'ai-junior',
+            ratingDiff: 16,
+            createdAt: new Date().toISOString(),
+            logs: [
+              {
+                turn: 1,
+                isHumanSetter: false,
+                chosenChair: 6,
+                isShocked: false,
+                remainingChairs: [1,2,3,4,5,7,8,9,10,11,12],
+                scores: { p1: 0, p2: 6 },
+                shocks: { p1: 0, p2: 0 }
+              },
+              {
+                turn: 2,
+                isHumanSetter: false,
+                chosenChair: 10,
+                isShocked: true,
+                remainingChairs: [1,2,3,4,5,7,8,9,11,12],
+                scores: { p1: 0, p2: 6 },
+                shocks: { p1: 1, p2: 0 }
+              }
+            ]
+          }
+        ];
+        setMatchesList(mockMatches);
+        // モックデータをLocalStorageにも保存しておく
+        localStorage.setItem('electric_chair_matches', JSON.stringify(mockMatches));
+      }
+    } catch (e) {
+      console.warn('Failed to parse local matches', e);
+      setMatchesList([]);
     }
   };
 
   const saveMatchToBackend = async (matchData: MatchResult) => {
+    const matchRecord: MatchRecord = {
+      matchId: matchData.matchId,
+      player1Id: matchData.player1.playerId,
+      player2Id: matchData.player2.playerId,
+      winnerId: matchData.winner,
+      ratingDiff: matchData.ratingDiff,
+      createdAt: new Date().toISOString(),
+      logs: matchData.logs,
+    };
+
+    // 常にLocalStorageにも保存する
+    try {
+      const localMatches = localStorage.getItem('electric_chair_matches');
+      const parsedMatches = localMatches ? JSON.parse(localMatches) : [];
+      parsedMatches.unshift(matchRecord);
+      localStorage.setItem('electric_chair_matches', JSON.stringify(parsedMatches));
+    } catch (e) {
+      console.warn('Failed to save match to local storage', e);
+    }
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
       await fetch(`${apiUrl}/save-match`, {
@@ -254,18 +320,10 @@ export function HomeContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          matchId: matchData.matchId,
-          player1Id: matchData.player1.playerId,
-          player2Id: matchData.player2.playerId,
-          winnerId: matchData.winner,
-          scores: matchData.scores,
-          shocks: matchData.shocks,
-          logs: matchData.logs,
-        })
+        body: JSON.stringify(matchRecord)
       });
     } catch (e) {
-      console.warn('Failed to save match result', e);
+      console.warn('Failed to save match result to API', e);
     }
   };
 

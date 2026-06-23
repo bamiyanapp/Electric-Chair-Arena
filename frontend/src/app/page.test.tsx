@@ -29,6 +29,27 @@ describe('Home Component', () => {
   let originalSetTimeout: any;
 
   beforeEach(() => {
+    // Mock localStorage
+    const localStorageMock = (() => {
+      let store: Record<string, string> = {};
+      return {
+        getItem: vi.fn((key: string) => store[key] || null),
+        setItem: vi.fn((key: string, value: string) => {
+          store[key] = value;
+        }),
+        removeItem: vi.fn((key: string) => {
+          delete store[key];
+        }),
+        clear: vi.fn(() => {
+          store = {};
+        })
+      };
+    })();
+    Object.defineProperty(window, 'localStorage', {
+      value: localStorageMock,
+      writable: true
+    });
+
     originalSetTimeout = global.setTimeout;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).setTimeout = (cb: any, ms?: number, ...args: any[]) => {
@@ -276,15 +297,42 @@ describe('Home Component', () => {
     expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
   });
   
-  it('covers error handling in fetch functions', async () => {
+  it('covers error handling in fetch functions and local storage mock fallback', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
     
+    // local storage is empty, so mock data will be used
     render(<HomeContent />);
     const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
     fireEvent.click(btn);
-    
+
     await waitFor(() => {
-      expect(screen.getAllByText('過去の対戦記録がありません。').length).toBeGreaterThan(0);
+      expect(screen.queryByText('過去の対戦記録がありません。')).toBeNull();
+      expect(screen.getAllByText(/match-1718970000000/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('loads matches from local storage if API fails', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    
+    const customMatches = [
+      {
+        matchId: 'match-custom-123',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-random',
+        winnerId: 'ai-random',
+        ratingDiff: 10,
+        createdAt: new Date().toISOString(),
+        logs: []
+      }
+    ];
+    window.localStorage.setItem('electric_chair_matches', JSON.stringify(customMatches));
+
+    render(<HomeContent />);
+    const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/match-custom-123/).length).toBeGreaterThan(0);
     });
   });
 
