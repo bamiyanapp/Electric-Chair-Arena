@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary } from './handler.js';
+import { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } from './handler.js';
 
 describe('Backend Handler Specification Tests', () => {
   it('should get players list properly', async () => {
@@ -98,6 +98,39 @@ describe('Backend Handler Specification Tests', () => {
     expect(resInvalid.statusCode).toBe(404);
   });
 
+  it('should handle getAiMove correctly', async () => {
+    const resSet = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'set', remainingChairs: [1, 2, 3] })
+    });
+    expect(resSet.statusCode).toBe(200);
+
+    const resChoose = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'choose', remainingChairs: [1, 2, 3] })
+    });
+    expect(resChoose.statusCode).toBe(200);
+
+    const resOkanoChooseEmpty = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'choose', remainingChairs: [1, 2] })
+    });
+    expect(resOkanoChooseEmpty.statusCode).toBe(200);
+
+    const resEmptySet = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'set', remainingChairs: [] })
+    });
+    expect(resEmptySet.statusCode).toBe(200);
+
+    const resMissing = await getAiMove({});
+    expect(resMissing.statusCode).toBe(400);
+
+    const resError = await getAiMove({ body: '{invalid-json}' });
+    expect(resError.statusCode).toBe(500);
+  });
+
+  it('should handle startMatch error', async () => {
+    const resError = await startMatch({ body: '{invalid-json}' });
+    expect(resError.statusCode).toBe(500);
+  });
+
   it('should handle saveMatch correctly', async () => {
     // Missing parameters
     const resMissing = await saveMatch({});
@@ -144,6 +177,42 @@ describe('Backend Handler Specification Tests', () => {
       })
     });
     expect(resSuccess2.statusCode).toBe(200);
+
+    // AI vs AI Draw
+    const resDraw = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-draw',
+        player1Id: 'ai-koyabu',
+        player2Id: 'ai-junior',
+        winnerId: 'draw',
+        scores: { p1: 10, p2: 10 },
+        shocks: { p1: 1, p2: 1 },
+        logs: []
+      })
+    });
+    expect(resDraw.statusCode).toBe(200);
+  });
+
+  it('should handle saveMatch error', async () => {
+    const resError = await saveMatch({ body: '{invalid-json}' });
+    expect(resError.statusCode).toBe(500);
+  });
+
+  it('should generate mock commentary for specific actions', async () => {
+    const originalEnv = process.env.GEMINI_API;
+    delete process.env.GEMINI_API;
+
+    const resShocked = await generateCommentary({
+      body: JSON.stringify({ action: { isShocked: true } })
+    });
+    expect(JSON.parse(resShocked.body).commentary).toContain('痛恨のビリビリ');
+
+    const resChosen = await generateCommentary({
+      body: JSON.stringify({ action: { chosenChair: 5 } })
+    });
+    expect(JSON.parse(resChosen.body).commentary).toContain('5番の椅子で勝負に出た');
+
+    process.env.GEMINI_API = originalEnv;
   });
 
   it('should handle generateCommentary correctly (no API key scenario)', async () => {
@@ -175,6 +244,9 @@ describe('Backend Handler Specification Tests', () => {
     } catch {
       // Ignore
     }
+
+    const resError = await generateCommentary({ body: '{invalid-json}' });
+    expect(resError.statusCode).toBe(500);
   });
 
   it('should reset score to 0 when a player gets electric shocked', async () => {
