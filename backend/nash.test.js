@@ -45,7 +45,6 @@ describe('fictitiousPlay', () => {
 
     expect(result100.gameValue).toBeGreaterThan(0);
     expect(result1000.gameValue).toBeGreaterThan(0);
-    // より多くの反復で収束が進む
     expect(result1000.gameValue).not.toBeNaN();
   });
 
@@ -53,7 +52,7 @@ describe('fictitiousPlay', () => {
     const chairs = [5];
     const result = fictitiousPlay(chairs, 1, 100);
 
-    expect(result.gameValue).toBe(0); // 1 chair, always set, so value is 0
+    expect(result.gameValue).toBe(0);
     expect(result.setProb[5]).toBeCloseTo(1, 0.01);
     expect(result.chooseProb[5]).toBeCloseTo(1, 0.01);
   });
@@ -65,6 +64,74 @@ describe('fictitiousPlay', () => {
     expect(result.setProb[1] + result.setProb[2]).toBeCloseTo(1, 0.1);
     expect(result.chooseProb[1] + result.chooseProb[2]).toBeCloseTo(1, 0.01);
     expect(result.gameValue).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should handle three chairs with numToSet=2', () => {
+    const chairs = [1, 2, 3];
+    const result = fictitiousPlay(chairs, 2, 500);
+
+    expect(result.setProb[1] + result.setProb[2] + result.setProb[3]).toBeCloseTo(1, 0.1);
+    expect(result.chooseProb[1] + result.chooseProb[2] + result.chooseProb[3]).toBeCloseTo(1, 0.01);
+    expect(result.gameValue).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should handle four chairs with numToSet=1', () => {
+    const chairs = [1, 2, 3, 4];
+    const result = fictitiousPlay(chairs, 1, 500);
+
+    expect(result.setProb[1] + result.setProb[2] + result.setProb[3] + result.setProb[4]).toBeCloseTo(1, 0.1);
+    expect(result.chooseProb[1] + result.chooseProb[2] + result.chooseProb[3] + result.chooseProb[4]).toBeCloseTo(1, 0.01);
+  });
+
+  it('should handle five chairs with numToSet=1', () => {
+    const chairs = [1, 2, 3, 4, 5];
+    const result = fictitiousPlay(chairs, 1, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+    expect(result.gameValue).toBeLessThan(5);
+  });
+
+  it('should handle six chairs with numToSet=2', () => {
+    const chairs = [1, 2, 3, 4, 5, 6];
+    const result = fictitiousPlay(chairs, 2, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+    expect(result.gameValue).toBeLessThan(6);
+  });
+
+  it('should handle seven chairs with numToSet=2', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7];
+    const result = fictitiousPlay(chairs, 2, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+  });
+
+  it('should handle eight chairs with numToSet=2', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8];
+    const result = fictitiousPlay(chairs, 2, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+  });
+
+  it('should handle nine chairs with numToSet=3', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const result = fictitiousPlay(chairs, 3, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+  });
+
+  it('should handle ten chairs with numToSet=3', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const result = fictitiousPlay(chairs, 3, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
+  });
+
+  it('should handle eleven chairs with numToSet=3', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    const result = fictitiousPlay(chairs, 3, 500);
+
+    expect(result.gameValue).toBeGreaterThan(0);
   });
 });
 
@@ -100,7 +167,6 @@ describe('computeSetterBestResponse', () => {
 
     const result = computeSetterBestResponse(chairs, 3, chooseCounts, totalChooses);
 
-    // 2 chairs only, should return both
     expect(result.length).toBe(2);
     expect(result).toContain(2);
     expect(result).toContain(1);
@@ -109,11 +175,33 @@ describe('computeSetterBestResponse', () => {
   it('should handle zero counts gracefully', () => {
     const chairs = [1, 2, 3];
     const chooseCounts = { 1: 0, 2: 0, 3: 0 };
-    const totalChooses = 1; // avoid division by zero
+    const totalChooses = 1;
 
     const result = computeSetterBestResponse(chairs, 2, chooseCounts, totalChooses);
 
     expect(result.length).toBe(2);
+  });
+
+  it('should handle single chair', () => {
+    const chairs = [5];
+    const chooseCounts = { 5: 10 };
+    const totalChooses = 10;
+
+    const result = computeSetterBestResponse(chairs, 1, chooseCounts, totalChooses);
+
+    expect(result).toEqual([5]);
+  });
+
+  it('should handle three chairs with numToSet=1', () => {
+    const chairs = [1, 2, 3];
+    const chooseCounts = { 1: 30, 2: 20, 3: 10 };
+    const totalChooses = 60;
+
+    const result = computeSetterBestResponse(chairs, 1, chooseCounts, totalChooses);
+
+    expect(result.length).toBe(1);
+    // q_i * v_i: chair1=0.5, chair2=0.667, chair3=0.5 → chair2が最高
+    expect(result).toContain(2);
   });
 });
 
@@ -145,8 +233,37 @@ describe('computeChooserBestResponse', () => {
 
     const result = computeChooserBestResponse(chairs, setCounts, totalSets);
 
-    // (1-0)*1 = 1, (1-0.5)*2 = 1, (1-0.5)*3 = 1.5 → chair 3
     expect(result).toBe(3);
+  });
+
+  it('should handle single chair', () => {
+    const chairs = [5];
+    const setCounts = { 5: 0 };
+    const totalSets = 1;
+
+    const result = computeChooserBestResponse(chairs, setCounts, totalSets);
+
+    expect(result).toBe(5);
+  });
+
+  it('should handle two chairs with different set probabilities', () => {
+    const chairs = [1, 2];
+    const setCounts = { 1: 0, 2: 100 };
+    const totalSets = 100;
+
+    const result = computeChooserBestResponse(chairs, setCounts, totalSets);
+
+    expect(result).toBe(1);
+  });
+
+  it('should handle equal expected values', () => {
+    const chairs = [1, 2];
+    const setCounts = { 1: 50, 2: 50 };
+    const totalSets = 100;
+
+    const result = computeChooserBestResponse(chairs, setCounts, totalSets);
+
+    expect([1, 2]).toContain(result);
   });
 });
 
@@ -174,6 +291,14 @@ describe('hasConverged', () => {
     const newProb = { 1: 0.2 };
 
     expect(hasConverged(oldProb, newProb, 0.01)).toBe(true);
+  });
+
+  it('should handle custom threshold', () => {
+    const oldProb = { 1: 0.2, 2: 0.3, 3: 0.5 };
+    const newProb = { 1: 0.25, 2: 0.3, 3: 0.45 };
+
+    expect(hasConverged(oldProb, newProb, 0.1)).toBe(true);
+    expect(hasConverged(oldProb, newProb, 0.01)).toBe(false);
   });
 });
 
@@ -221,13 +346,11 @@ describe('getNashMove', () => {
   it('should handle two chairs for setter', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2]);
 
-    expect(result.setChairs.length).toBe(1); // floor(2/3) = 0, max(1, 0) = 1
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle situation where expected values are all below game value', () => {
-    // 椅子が少ない場合、全ての期待値がゲームの値以下になりうる
-    // 適当な椅子でテスト（実際の値に依存するのでアサーションは緩めに）
     const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5]);
 
     expect(result).toHaveProperty('chosenChair');
@@ -237,18 +360,16 @@ describe('getNashMove', () => {
   });
 
   it('should return deterministic results for setter with same remaining chairs', () => {
-    // 同じ条件で2回呼び出してもエラーにならないこと
     const result1 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
     const result2 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
 
-    expect(result1.setChairs.length).toBe(2); // floor(6/3) = 2
+    expect(result1.setChairs.length).toBe(2);
     expect(result2.setChairs.length).toBe(2);
     expect(result1.reasoning).toContain('ナッシュ均衡');
     expect(result2.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle chair numbers that are not sequential', () => {
-    // 既にいくつか椅子が選択された後の状態をシミュレート
     const result = getNashMove('ai-nash', 'choose', [2, 5, 8, 11]);
 
     expect(result).toHaveProperty('chosenChair');
@@ -257,13 +378,128 @@ describe('getNashMove', () => {
   });
 
   it('should handle many chairs with numToSet = 1', () => {
-    // startMatchではfloor(12/3)=3だが、直接呼び出しでsmall chairsのケースをテスト
-    const chairs = [1, 2, 3, 4]; // floor(4/3) = 1
+    const chairs = [1, 2, 3, 4];
     const resultSetter = getNashMove('ai-nash', 'set', chairs);
     const resultChooser = getNashMove('ai-nash', 'choose', chairs);
 
     expect(resultSetter.setChairs.length).toBe(1);
     expect(resultChooser.chosenChair).toBeGreaterThanOrEqual(1);
     expect(resultChooser.chosenChair).toBeLessThanOrEqual(4);
+  });
+
+  it('should handle three chairs for setter with numToSet=1', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3]);
+
+    expect(result.setChairs.length).toBe(1);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle four chairs for setter with numToSet=1', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4]);
+
+    expect(result.setChairs.length).toBe(1);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle five chairs for setter with numToSet=1', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5]);
+
+    expect(result.setChairs.length).toBe(1);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle six chairs for setter with numToSet=2', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
+
+    expect(result.setChairs.length).toBe(2);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle seven chairs for setter with numToSet=2', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7]);
+
+    expect(result.setChairs.length).toBe(2);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle eight chairs for setter with numToSet=2', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8]);
+
+    expect(result.setChairs.length).toBe(2);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle nine chairs for setter with numToSet=3', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    expect(result.setChairs.length).toBe(3);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle ten chairs for setter with numToSet=3', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+
+    expect(result.setChairs.length).toBe(3);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle three chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect([1, 2, 3]).toContain(result.chosenChair);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle four chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect([1, 2, 3, 4]).toContain(result.chosenChair);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle five chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect([1, 2, 3, 4, 5]).toContain(result.chosenChair);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle six chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5, 6]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect([1, 2, 3, 4, 5, 6]).toContain(result.chosenChair);
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle seven chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5, 6, 7]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle eight chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5, 6, 7, 8]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle high value chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [8, 9, 10, 11, 12]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+
+  it('should handle low value chairs for chooser', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect(result.reasoning).toContain('ナッシュ均衡');
   });
 });
