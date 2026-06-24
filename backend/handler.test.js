@@ -249,6 +249,22 @@ describe('Backend Handler Specification Tests', () => {
     expect(resError.statusCode).toBe(500);
   });
 
+  it('should start a match with nash AI player', async () => {
+    const event = {
+      body: JSON.stringify({
+        player1Id: 'ai-nash',
+        player2Id: 'ai-okano',
+      }),
+    };
+
+    const response = await startMatch(event);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+
+    expect(body.matchId).toBeDefined();
+    expect(body.logs.length).toBeGreaterThan(0);
+  });
+
   it('should reset score to 0 when a player gets electric shocked', async () => {
     const event = {
       body: JSON.stringify({
