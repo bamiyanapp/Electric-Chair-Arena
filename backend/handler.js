@@ -2,6 +2,7 @@
 
 const { GAME_RULES } = require('./rules.js');
 const { GoogleGenAI } = require('@google/genai');
+const { getNashMove } = require('./nash.js');
 
 // AIプレイヤーの初期データ
 const initialPlayers = [
@@ -48,6 +49,15 @@ const initialPlayers = [
     rating: 1520,
     winCount: 35,
     matchCount: 75,
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    playerId: 'ai-nash',
+    name: 'ナッシュ均衡AI',
+    type: 'nash',
+    rating: 1650,
+    winCount: 70,
+    matchCount: 95,
     updatedAt: new Date().toISOString(),
   },
 ];
@@ -313,6 +323,11 @@ module.exports.getMatchResult = async (event) => {
 
 // AIの行動と思考
 function getAiMove(playerId, role, remainingChairs) {
+  // ナッシュ均衡AIは共通ロジックを使用
+  if (playerId === 'ai-nash') {
+    return getNashMove(playerId, role, remainingChairs);
+  }
+
   if (role === 'set') {
     // 親（設置）：残りの椅子の1/3程度に電流をセット
     const numToSet = Math.min(3, Math.max(1, Math.floor(remainingChairs.length / 3)));
