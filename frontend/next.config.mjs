@@ -11,6 +11,7 @@ const nextConfig = {
   assetPrefix: isGithubActions ? `${basePath}/` : '',
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
+    NEXT_PUBLIC_API_URL: 'https://alcm6iok74.execute-api.ap-northeast-1.amazonaws.com/dev',
   },
   images: {
     unoptimized: true,
