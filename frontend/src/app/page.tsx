@@ -336,6 +336,7 @@ export function HomeContent() {
       { playerId: 'ai-junior', name: '千原ジュニア風AI', type: 'personality', rating: 1620, winCount: 61, matchCount: 100 },
       { playerId: 'ai-random', name: 'ランダムAI', type: 'random', rating: 1400, winCount: 20, matchCount: 70 },
       { playerId: 'ai-rule-based', name: '期待値計算AI', type: 'rule_based', rating: 1520, winCount: 35, matchCount: 75 },
+      { playerId: 'ai-nash', name: 'ナッシュ均衡AI', type: 'nash', rating: 1650, winCount: 70, matchCount: 95 },
     ];
     setPlayers(mockPlayers);
     setLeaderboard([...mockPlayers].sort((a, b) => b.rating - a.rating));
