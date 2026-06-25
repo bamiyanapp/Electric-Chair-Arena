@@ -968,6 +968,7 @@ export function HomeContent() {
                           const chairStatus = (() => {
                             if (shockedChair === chair) return 'SHOCKING';
                             if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
+                            if (gameStep === 'AI_THINKING' && highlightedChair === chair) return 'TRAP_SET';
                             if (highlightedChair === chair) return 'HIGHLIGHTED';
                             if (!isAvailable) {
                               const log = matchResult.logs.find(l => l.chosenChair === chair);
@@ -999,6 +1000,17 @@ export function HomeContent() {
                                     <span className="flex flex-col items-center justify-center leading-none">
                                       <span className="text-lg animate-bounce">🤔</span>
                                       <span className="text-[10px] font-bold">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              case 'TRAP_SET':
+                                return {
+                                  chairClass: 'bg-yellow-400 border-2 border-yellow-600 text-yellow-950 scale-110 shadow-lg shadow-yellow-400/60 z-10',
+                                  chairContent: (
+                                    <span className="relative flex flex-col items-center justify-center leading-none">
+                                      <span className="absolute inline-flex h-10 w-10 animate-ping rounded-full bg-yellow-300 opacity-60"></span>
+                                      <span className="relative text-lg animate-pulse">⚡</span>
+                                      <span className="relative text-[10px] font-bold">#{chair}</span>
                                     </span>
                                   )
                                 };

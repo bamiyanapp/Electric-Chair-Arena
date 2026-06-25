@@ -222,6 +222,40 @@ describe('Home Component', () => {
     });
   });
 
+  it('shows an electric design (not the thinking-face emoji) on the chair while setting the trap', async () => {
+    // このテストでは1.5秒のsleepを自動解決させず、AI_THINKING中（罠を設定した直後）の表示を検証する
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).setTimeout = (cb: any, ms?: number, ...args: any[]) => {
+      if (ms === 1500) {
+        return {} as any;
+      }
+      return originalSetTimeout(cb, ms, ...args);
+    };
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/AIが座る椅子を選んでいます/)[0]).toBeDefined();
+    });
+
+    const trapSetBtn = screen.getAllByRole('button').find(b => b.textContent?.includes('#2'));
+    expect(trapSetBtn?.textContent?.includes('⚡')).toBe(true);
+    expect(trapSetBtn?.textContent?.includes('🤔')).toBe(false);
+  });
+
   it('plays game until end and tests various conditions', async () => {
     let aiMoveCount = 0;
     global.fetch = vi.fn((url: string | Request | URL) => {
