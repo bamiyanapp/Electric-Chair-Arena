@@ -227,6 +227,7 @@ describe('Home Component', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).setTimeout = (cb: any, ms?: number, ...args: any[]) => {
       if (ms === 1500) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return {} as any;
       }
       return originalSetTimeout(cb, ms, ...args);
