@@ -800,17 +800,18 @@ export function HomeContent() {
                         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
                           <button
                             onClick={() => {
-                              const isGameOver = tempNextState.winner ? true : false;
+                              const nextState = tempNextState;
+                              const isGameOver = nextState.winner ? true : false;
                               setMatchResult(prev => {
-                                if (!prev || !tempNextState) return prev;
+                                if (!prev || !nextState) return prev;
                                 const newResult = {
                                   ...prev,
-                                  winner: tempNextState.winner,
-                                  scores: tempNextState.newScores,
-                                  shocks: tempNextState.newShocks,
-                                  logs: [...prev.logs, tempNextState.newLog]
+                                  winner: nextState.winner,
+                                  scores: nextState.newScores,
+                                  shocks: nextState.newShocks,
+                                  logs: [...prev.logs, nextState.newLog]
                                 };
-                                if (tempNextState.winner) {
+                                if (nextState.winner) {
                                   saveMatchToBackend(newResult);
                                 }
                                 return newResult;
@@ -1191,19 +1192,19 @@ export function HomeContent() {
                         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
                           <button
                             onClick={() => {
-                              let isGameOver = false;
+                              const nextState = tempNextState;
+                              const isGameOver = nextState.winner ? true : false;
                               setMatchResult(prev => {
-                                if (!prev || !tempNextState) return prev;
+                                if (!prev || !nextState) return prev;
                                 const newResult = {
                                   ...prev,
-                                  winner: tempNextState.winner,
-                                  scores: tempNextState.newScores,
-                                  shocks: tempNextState.newShocks,
-                                  logs: [...prev.logs, tempNextState.newLog]
+                                  winner: nextState.winner,
+                                  scores: nextState.newScores,
+                                  shocks: nextState.newShocks,
+                                  logs: [...prev.logs, nextState.newLog]
                                 };
-                                if (tempNextState.winner) {
+                                if (nextState.winner) {
                                   saveMatchToBackend(newResult);
-                                  isGameOver = true;
                                 }
                                 return newResult;
                               });
