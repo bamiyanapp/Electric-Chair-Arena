@@ -222,6 +222,35 @@ describe('Home Component', () => {
     });
   });
 
+  it('shows an error message instead of leaving the commentary placeholder stuck when the commentary fetch fails', async () => {
+    const defaultFetch = global.fetch;
+    global.fetch = vi.fn((url: string | Request | URL, ...args) => {
+      if (url.toString().includes('generate-commentary')) {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response);
+      }
+      return defaultFetch(url, ...args);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('解説の取得に失敗しました。')[0]).toBeDefined();
+    });
+  });
+
   it('shows an electric design (not the thinking-face emoji) on the chair while setting the trap', async () => {
     // このテストでは1.5秒のsleepを自動解決させず、AI_THINKING中（罠を設定した直後）の表示を検証する
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

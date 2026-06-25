@@ -645,9 +645,10 @@ module.exports.generateCommentary = async (event) => {
 
     try {
       const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt
+        model: 'gemini-2.5-flash',
+        contents: prompt
       });
+      const text = response.text;
 
       return {
         statusCode: 200,
@@ -655,7 +656,7 @@ module.exports.generateCommentary = async (event) => {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Credentials': true,
         },
-        body: JSON.stringify({ commentary: response.text }),
+        body: JSON.stringify({ commentary: text || generateMockCommentary() }),
       };
     } catch (apiError) {
       console.error('Gemini API Error:', apiError);

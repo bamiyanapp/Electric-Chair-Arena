@@ -192,13 +192,14 @@ export function HomeContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gameState: state, action })
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.commentary) {
-          setCommentary(data.commentary);
-        } else {
-          setCommentary('');
-        }
+      if (!res.ok) {
+        throw new Error(`commentary fetch failed: ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.commentary) {
+        setCommentary(data.commentary);
+      } else {
+        setCommentary('');
       }
     } catch (e) {
       console.warn('Failed to fetch commentary', e);
