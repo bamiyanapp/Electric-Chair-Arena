@@ -597,7 +597,6 @@ export function HomeContent() {
                           const chairStatus = (() => {
                             if (shockedChair === chair) return 'SHOCKING';
                             if (highlightedChair === chair) return 'HIGHLIGHTED';
-                            if (pvpSetChair === chair) return 'HIGHLIGHTED';
                             if (!isAvailable) {
                               const log = matchResult.logs.find(l => l.chosenChair === chair);
                               if (log) {
@@ -776,22 +775,21 @@ export function HomeContent() {
                         });
                       })()}
 
-                      {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
-                        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
-                          <button
-                            onClick={() => {
-                              setPvpStage('CHOOSING_CHAIR');
-                              setPvpSetChair(null); // 非表示にするため
-                              const turn = matchResult.logs.length + 1;
-                              const isP1Setter = turn % 2 !== 0;
-                              setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}の番です。座る椅子を選んでください。`);
-                            }}
-                            className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                          >
-                            準備完了 (画面を渡しました)
-                          </button>
-                        </div>
-                      )}
+                          {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
+                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
+                              <button
+                                onClick={() => {
+                                  setPvpStage('CHOOSING_CHAIR');
+                                  const turn = matchResult.logs.length + 1;
+                                  const isP1Setter = turn % 2 !== 0;
+                                  setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}の番です。座る椅子を選んでください。`);
+                                }}
+                                className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                              >
+                                準備完了 (画面を渡しました)
+                              </button>
+                            </div>
+                          )}
 
                       {pvpStage === 'SHOW_RESULT' && tempNextState && (
                         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
