@@ -445,4 +445,117 @@ describe('Home Component', () => {
       expect(screen.getAllByText('プレイヤー1が電流を仕掛ける番です。')[0]).toBeDefined();
     });
   });
+
+  it('PVP game ends correctly when winning condition is met (3 shocks)', async () => {
+    let callCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        callCount++;
+        // For PVP mode, return the last remaining chair to ensure shock
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ chosenChair: 5, setChairs: [5] })
+        } as Response);
+      }
+      if (urlStr.includes('save-match')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    const pvpBtn = screen.getByRole('button', { name: /人対人/ });
+    fireEvent.click(pvpBtn);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn 1: P1 sets chair 3, P2 chooses chair 3 (Shocked) - P2 gets 1 shock
+    await waitFor(() => {
+      expect(screen.getAllByText(/プレイヤー1が電流を仕掛ける番です。/)[0]).toBeDefined();
+    });
+
+    const chairBtns1 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'));
+    fireEvent.click(chairBtns1[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+
+    const chairBtns2 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'));
+    fireEvent.click(chairBtns2[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn 2: P2 sets chair 2, P1 chooses chair 2 (Shocked) - P1 gets 1 shock
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2が電流を仕掛ける番です。')[0]).toBeDefined();
+    });
+
+    const chairBtns3 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns3[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+
+    const chairBtns4 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns4[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn 3: P1 sets chair 5, P2 chooses chair 5 (Shocked) - P2 gets 2 shocks and loses (MAX_SHOCKS = 2)
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1が電流を仕掛ける番です。')[0]).toBeDefined();
+    });
+
+    const chairBtns5 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#5'));
+    fireEvent.click(chairBtns5[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+
+    const chairBtns6 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#5'));
+    fireEvent.click(chairBtns6[0]);
+
+    // Game should end here (P2 has 2 shocks = MAX_SHOCKS)
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+
+    // Click to see final result
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+
+    // Should show WINNER screen
+    await waitFor(() => {
+      expect(screen.getAllByText('WINNER')[0]).toBeDefined();
+      expect(screen.getAllByText('プレイヤー1')[0]).toBeDefined();
+    });
+  });
 });
