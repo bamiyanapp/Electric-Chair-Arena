@@ -292,11 +292,72 @@ describe('Home Component', () => {
     });
   });
 
+  it('reveals all AI-set trap chairs on result even when the human chooses safely', async () => {
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        // AIが2番・3番の複数の椅子に電流を仕掛ける
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [2, 3] }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn 1: AIが仕掛け、人間が選ぶ番 (turn番号が偶数の場合に相当するロジックだが、初回は人間が仕掛ける番のため
+    // 一度仕掛けて次のターンでAIが仕掛ける番に進める)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    const setupChairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'));
+    fireEvent.click(setupChairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn 2: AIが2番・3番に電流を仕掛け、人間は安全な4番を選ぶ
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    const safeChairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#4'));
+    fireEvent.click(safeChairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+
+    // 答え合わせ画面で、AIが仕掛けた2番・3番の椅子がどちらも⚡付きで明示されている
+    const trapChairBtn2 = screen.getAllByRole('button').find(
+      b => b.textContent?.includes('#2') && b.textContent?.includes('⚡')
+    );
+    const trapChairBtn3 = screen.getAllByRole('button').find(
+      b => b.textContent?.includes('#3') && b.textContent?.includes('⚡')
+    );
+    expect(trapChairBtn2).toBeDefined();
+    expect(trapChairBtn3).toBeDefined();
+
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // 次のターンに進むと、3番の椅子は通常表示に戻る (まだ選択可能なため)
+    await waitFor(() => {
+      const resetChairBtn = screen.getAllByRole('button').find(b => b.textContent?.includes('#3'));
+      expect(resetChairBtn?.textContent?.includes('🪑')).toBe(true);
+    });
+  });
+
   it('renders Home wrapper component', () => {
     render(<Home />);
     expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
   });
-  
+
   it('covers error handling in fetch functions and local storage mock fallback', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
     

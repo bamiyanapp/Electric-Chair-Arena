@@ -155,6 +155,7 @@ export function HomeContent() {
     newScores: { p1: number; p2: number };
     newShocks: { p1: number; p2: number };
     newLog: GameLog;
+    aiSetChairs?: number[];
   } | null>(null);
   
   const [commentary, setCommentary] = useState<string>('');
@@ -966,6 +967,7 @@ export function HomeContent() {
                           // 椅子の詳細なグラフィカル状態判定
                           const chairStatus = (() => {
                             if (shockedChair === chair) return 'SHOCKING';
+                            if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
                             if (highlightedChair === chair) return 'HIGHLIGHTED';
                             if (!isAvailable) {
                               const log = matchResult.logs.find(l => l.chosenChair === chair);
@@ -997,6 +999,16 @@ export function HomeContent() {
                                     <span className="flex flex-col items-center justify-center leading-none">
                                       <span className="text-lg animate-bounce">🤔</span>
                                       <span className="text-[10px] font-bold">#{chair}</span>
+                                    </span>
+                                  )
+                                };
+                              case 'AI_TRAP_REVEALED':
+                                return {
+                                  chairClass: 'bg-orange-500 border-2 border-orange-800 text-white scale-105 shadow-lg shadow-orange-500/50 z-20',
+                                  chairContent: (
+                                    <span className="flex flex-col items-center justify-center leading-none">
+                                      <span className="text-lg">⚡</span>
+                                      <span className="text-[9px] font-bold">#{chair}</span>
                                     </span>
                                   )
                                 };
@@ -1062,6 +1074,7 @@ export function HomeContent() {
                                   
                                   let aiChosenChair = 0;
                                   let isShocked = false;
+                                  let aiSetChairsForReveal: number[] | undefined;
 
                                   if (isHumanSetter) {
                                     // 【人間が仕掛け、AIが選ぶ】
@@ -1108,6 +1121,7 @@ export function HomeContent() {
                                     const humanChosenChair = chair;
                                     
                                     isShocked = aiSetChairs.includes(humanChosenChair);
+                                    aiSetChairsForReveal = aiSetChairs;
 
                                     setGameStep('SHOW_RESULT');
                                     if (isShocked) {
@@ -1169,7 +1183,8 @@ export function HomeContent() {
                                       chosenChair: isHumanSetter ? aiChosenChair : chair,
                                       isShocked,
                                       remainingChairs: nextRemainingChairs
-                                    }
+                                    },
+                                    aiSetChairs: aiSetChairsForReveal
                                   });
 
                                 } catch (e) {
