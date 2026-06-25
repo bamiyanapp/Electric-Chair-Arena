@@ -759,6 +759,11 @@ export function HomeContent() {
                                       }
                                     });
                                     setPvpStage('SHOW_RESULT');
+                                    
+                                    // ゲーム終了時は後続の処理をスキップ
+                                    if (winner) {
+                                      return;
+                                    }
                                   }
                                 } catch (e) {
                                   console.error(e);
@@ -795,7 +800,7 @@ export function HomeContent() {
                         <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
                           <button
                             onClick={() => {
-                              let isGameOver = false;
+                              const isGameOver = tempNextState.winner ? true : false;
                               setMatchResult(prev => {
                                 if (!prev || !tempNextState) return prev;
                                 const newResult = {
@@ -807,7 +812,6 @@ export function HomeContent() {
                                 };
                                 if (tempNextState.winner) {
                                   saveMatchToBackend(newResult);
-                                  isGameOver = true;
                                 }
                                 return newResult;
                               });
