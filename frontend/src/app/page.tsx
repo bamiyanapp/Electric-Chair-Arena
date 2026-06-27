@@ -107,8 +107,18 @@ export function HomeContent() {
 
   const viewFromUrl = searchParams.get('view') as 'LOBBY' | 'RESULT' | 'GAME' | 'PVP_GAME' | 'LEADERBOARD' | 'SCOREBOARDS' | null;
   const [currentView, setCurrentViewState] = useState<'LOBBY' | 'RESULT' | 'GAME' | 'PVP_GAME' | 'LEADERBOARD' | 'SCOREBOARDS'>(viewFromUrl || 'LOBBY');
+  // setCurrentView実行直後、router.pushによるURL反映が完了するまでの間は
+  // viewFromUrlが古い値のままになる。この間にURL同期effectが古い値で
+  // currentViewを巻き戻してしまうのを防ぐためのフラグ。
+  const pendingViewRef = React.useRef<typeof currentView | null>(null);
 
   useEffect(() => {
+    if (pendingViewRef.current !== null) {
+      if (currentView === pendingViewRef.current) {
+        pendingViewRef.current = null;
+      }
+      return;
+    }
     if (viewFromUrl && viewFromUrl !== currentView) {
       setCurrentViewState(viewFromUrl);
     } else if (!viewFromUrl && currentView !== 'LOBBY') {
@@ -117,6 +127,12 @@ export function HomeContent() {
   }, [viewFromUrl, currentView]);
 
   const setCurrentView = (view: 'LOBBY' | 'RESULT' | 'GAME' | 'PVP_GAME' | 'LEADERBOARD' | 'SCOREBOARDS') => {
+    // viewがcurrentViewと同値の場合、setCurrentViewStateはReactにより
+    // 再レンダリングがバイパスされるためeffectが再実行されず、
+    // pendingViewRefをセットすると永久に解除されなくなる。
+    if (view !== currentView) {
+      pendingViewRef.current = view;
+    }
     setCurrentViewState(view);
     const params = new URLSearchParams(searchParams.toString());
     if (view === 'LOBBY') {
