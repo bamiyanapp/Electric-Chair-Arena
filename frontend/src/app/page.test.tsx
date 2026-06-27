@@ -204,6 +204,145 @@ describe('Home Component', () => {
     });
   });
 
+  it('does not bounce away from LOBBY while router.push reflects the URL change in two steps', async () => {
+    // Next.jsのルーター内部の再描画タイミングによっては、router.push後の
+    // URL反映が最終値に落ち着くまでの間にviewFromUrlが別の値を経由する
+    // ことがある。setCurrentView呼び出し直後はpendingViewRefがtargetを
+    // 保持し続け、viewFromUrlがそのtargetに実際に追いつくまでURL同期
+    // effectが古い/中間の値でcurrentViewを巻き戻してはならない。
+    vi.useFakeTimers();
+    try {
+      mockGet.mockReturnValue('LEADERBOARD');
+      mockPush.mockImplementation((url: string) => {
+        // 1段目: ルーター内部の遷移中の値（自分のpush対象ではない値）を経由する。
+        setTimeout(() => mockGet.mockReturnValue('GAME'), 200);
+        // 2段目: 最終的に正しい値（今回はLOBBY＝viewパラメータなし）に落ち着く。
+        setTimeout(() => {
+          if (url.includes('view=')) {
+            const viewMatch = url.match(/view=([^&]+)/);
+            if (viewMatch) {
+              mockGet.mockReturnValue(viewMatch[1]);
+            }
+          } else {
+            mockGet.mockReturnValue(null);
+          }
+        }, 400);
+      });
+
+      const { rerender } = render(<HomeContent />);
+      expect(screen.getAllByText('リーダーボード').length).toBeGreaterThan(0);
+
+      const backBtn = screen.getAllByText('ロビーへ戻る')[0];
+      fireEvent.click(backBtn);
+      expect(screen.getAllByText('人間対AI').length).toBeGreaterThan(0);
+
+      // 中間値(GAME)が反映された(200ms)タイミングでもLOBBYに留まり続けること。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('人間対AI').length).toBeGreaterThan(0);
+      expect(screen.queryByText('リーダーボード')).toBeNull();
+
+      // 最終的な値(LOBBY)が反映された(400ms)後も、もちろんLOBBYのまま。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('人間対AI').length).toBeGreaterThan(0);
+      expect(screen.queryByText('リーダーボード')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('releases the pending-navigation guard after a timeout so external URL changes (e.g. browser back) are not blocked forever if a push never reflects', async () => {
+    // setCurrentView呼び出し後、対応するrouter.pushのURL反映が
+    // （何らかの理由で）一切来ないまま外部要因でURLが別の値に変化した
+    // 場合、pendingViewRefがそのtargetに永久に一致しないままになり、
+    // 以後のURL同期effectがすべて機能しなくなってしまう。タイムアウトで
+    // ガードを解除し、ブラウザの戻る/進む操作等が再び効くようにする。
+    vi.useFakeTimers();
+    try {
+      // このテストではrouter.pushがURLに一切反映しない状況を模倣する。
+      mockPush.mockImplementation(() => {});
+
+      const { rerender } = render(<HomeContent />);
+
+      const lbBtn = screen.getByRole('button', { name: /ランキング/ });
+      fireEvent.click(lbBtn);
+      expect(screen.getAllByText('リーダーボード').length).toBeGreaterThan(0);
+
+      // 外部要因（ブラウザの戻る操作など）によるURL変化を模倣する。
+      // pendingViewRefの対象(LEADERBOARD)とは異なる値になる。
+      mockGet.mockReturnValue('SCOREBOARDS');
+
+      // タイムアウト前は、まだガードが有効でこの変化を無視し続ける。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('リーダーボード').length).toBeGreaterThan(0);
+
+      // タイムアウト後はガードが解除され、外部URL変化が反映される。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('過去のスコアボード一覧').length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let a stale timeout from an earlier navigation release the guard for a later navigation to the same view', async () => {
+    // 同じviewへ短時間に複数回ナビゲートした場合、最初の呼び出しの
+    // タイムアウト(2秒後)が、後の呼び出しが設定したpendingViewRefを
+    // 誤って解除してしまってはならない（tokenによる識別が必要）。
+    vi.useFakeTimers();
+    try {
+      // router.pushがURLに一切反映しない状況を模倣する。
+      mockPush.mockImplementation(() => {});
+
+      const { rerender } = render(<HomeContent />);
+
+      const lbBtn = () => screen.getByRole('button', { name: /ランキング/ });
+      const backBtn = () => screen.getAllByText('ロビーへ戻る')[0];
+
+      fireEvent.click(lbBtn()); // t=0: LOBBY -> LEADERBOARD (1st call's timeout fires at t=2000)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      fireEvent.click(backBtn()); // t=500: LEADERBOARD -> LOBBY
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      fireEvent.click(lbBtn()); // t=1000: LOBBY -> LEADERBOARD (2nd call's timeout fires at t=3000)
+      expect(screen.getAllByText('リーダーボード').length).toBeGreaterThan(0);
+
+      // 外部要因によるURL変化を模倣する。
+      mockGet.mockReturnValue('GAME');
+
+      // t=2000: 1回目の呼び出しのタイムアウトが発火するが、現在の
+      // pendingViewRefは2回目の呼び出しのものなので解除されてはならない。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('リーダーボード').length).toBeGreaterThan(0);
+
+      // t=3000: 2回目の呼び出し自身のタイムアウトが発火し、ここでようやく
+      // ガードが解除されて外部URL変化が反映される。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      rerender(<HomeContent />);
+      expect(screen.getAllByText('対戦開始').length).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('can navigate to SCOREBOARDS', async () => {
     render(<HomeContent />);
     const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
