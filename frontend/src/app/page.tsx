@@ -110,21 +110,34 @@ export function HomeContent() {
   // setCurrentView実行直後、router.pushによるURL反映が完了するまでの間は
   // viewFromUrlが古い値のままになる。この間にURL同期effectが古い値で
   // currentViewを巻き戻してしまうのを防ぐためのフラグ。
+  // pendingViewRefはviewFromUrl（URL側）が実際にこの値に追いつくまで
+  // 保持し続ける。currentViewはsetCurrentView呼び出し時点で即座に更新
+  // されるため、currentViewとの一致で判定すると常に即座にクリアされて
+  // しまい、URL反映の遅延中はガードとして機能しない。
   const pendingViewRef = React.useRef<typeof currentView | null>(null);
+  // setCurrentView呼び出しごとに発行するトークン。同じviewへ短時間に
+  // 複数回ナビゲートした場合、古い呼び出しのタイムアウトが新しい呼び出しの
+  // pendingViewRefを誤って解除してしまわないようにするための識別子。
+  const pendingTokenRef = React.useRef(0);
+  // pendingViewRefをタイムアウトで解除した際、URL同期effectを再実行させる
+  // ためのトリガー。ref変更はReactの再レンダリングを引き起こさないため、
+  // この状態変化がない場合タイムアウトでの解除がeffectに反映されない。
+  const [pendingGuardTick, setPendingGuardTick] = useState(0);
 
   useEffect(() => {
+    // viewパラメータが無いURLはLOBBYを表す（setCurrentViewのLOBBY分岐を参照）。
+    const effectiveUrlView = viewFromUrl || 'LOBBY';
     if (pendingViewRef.current !== null) {
-      if (currentView === pendingViewRef.current) {
+      if (effectiveUrlView === pendingViewRef.current) {
         pendingViewRef.current = null;
+      } else {
+        return;
       }
-      return;
     }
-    if (viewFromUrl && viewFromUrl !== currentView) {
-      setCurrentViewState(viewFromUrl);
-    } else if (!viewFromUrl && currentView !== 'LOBBY') {
-      setCurrentViewState('LOBBY');
+    if (effectiveUrlView !== currentView) {
+      setCurrentViewState(effectiveUrlView);
     }
-  }, [viewFromUrl, currentView]);
+  }, [viewFromUrl, currentView, pendingGuardTick]);
 
   const setCurrentView = (view: 'LOBBY' | 'RESULT' | 'GAME' | 'PVP_GAME' | 'LEADERBOARD' | 'SCOREBOARDS') => {
     // viewがcurrentViewと同値の場合、setCurrentViewStateはReactにより
@@ -132,6 +145,21 @@ export function HomeContent() {
     // pendingViewRefをセットすると永久に解除されなくなる。
     if (view !== currentView) {
       pendingViewRef.current = view;
+      // ブラウザの戻る/進む操作等でURLがこのview以外の値に変化した場合、
+      // pendingViewRefはviewFromUrlと一致するまで永久に残り続けてしまい、
+      // それ以降のURL同期effectがすべて機能しなくなる。router.pushによる
+      // URL反映は通常一瞬で完了するため、十分待ってもまだ自分が設定した
+      // 値のままであればガードを解除し、URL同期effectを再実行させる。
+      // tokenで「この呼び出し自身が設定したpendingViewRefか」を判定する
+      // ことで、短時間に同じviewへ再度ナビゲートした場合に古いタイムアウトが
+      // 新しい呼び出しのガードを誤って解除してしまうのを防ぐ。
+      const token = (pendingTokenRef.current += 1);
+      setTimeout(() => {
+        if (pendingTokenRef.current === token && pendingViewRef.current === view) {
+          pendingViewRef.current = null;
+          setPendingGuardTick((t) => t + 1);
+        }
+      }, 2000);
     }
     setCurrentViewState(view);
     const params = new URLSearchParams(searchParams.toString());
