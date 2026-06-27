@@ -6,7 +6,7 @@
 ## 2. 技術スタック
 - **Frontend**: Next.js (React), TypeScript, Tailwind CSS
 - **Backend**: AWS Lambda, API Gateway
-- **Database**: Lambda プロセス内のインメモリ配列（`backend/handler.js` の `playersDb` / `matchesDb`）。`serverless.yml` に DynamoDB Local のプラグイン設定があるが、現状の実装では未使用。
+- **Database**: 読み取りはLambda プロセス内のインメモリ配列（`backend/handler.js` の `playersDb` / `matchesDb`）を使用。試合終了時（`startMatch` / `saveMatch`）のスコアボードはDynamoDB（`MatchesTable`）へも書き込む（書き込み失敗時もレスポンスはブロックしないベストエフォート方式）。
 - **Infrastructure**: Serverless Framework
 - **AI Integration**: Gemini API は対戦の実況テキスト生成（`generateCommentary`）にのみ使用。AI自体の行動決定はLLMを使わず、`backend/handler.js` 内のヒューリスティックロジック（個性付きAI3種・ランダムAI・期待値計算AI）と `backend/nash.js` のナッシュ均衡AIで行う。OpenAI APIは使用していない。
 

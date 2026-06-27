@@ -3,6 +3,17 @@
 const { GAME_RULES } = require('./rules.js');
 const { GoogleGenAI } = require('@google/genai');
 const { getNashMove } = require('./nash.js');
+const { PutCommand } = require('@aws-sdk/lib-dynamodb');
+const { docClient, MATCHES_TABLE } = require('./dynamoClient.js');
+
+// 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
+async function recordMatchToDynamo(match) {
+  try {
+    await docClient.send(new PutCommand({ TableName: MATCHES_TABLE, Item: match }));
+  } catch (error) {
+    console.error('Failed to record match to DynamoDB:', error);
+  }
+}
 
 // AIプレイヤーの初期データ
 const initialPlayers = [
@@ -583,6 +594,7 @@ module.exports.startMatch = async (event) => {
     };
 
     matchesDb.unshift(newMatch);
+    await recordMatchToDynamo(newMatch);
 
     return {
       statusCode: 200,
@@ -765,6 +777,7 @@ module.exports.saveMatch = async (event) => {
     };
 
     matchesDb.unshift(newMatch);
+    await recordMatchToDynamo(newMatch);
 
     return {
       statusCode: 200,

@@ -1,7 +1,29 @@
-import { describe, it, expect } from 'vitest';
-import { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } from './handler.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createRequire } from 'module';
+import Module from 'module';
+
+// handler.js内部のrequire('./dynamoClient.js')はCJSのrequireで読み込まれるため、
+// commentary.test.jsと同様にvi.mockではインターセプトできない。
+// そのため、handler.jsを読み込む前にNodeのrequireキャッシュへ直接モックを差し込む。
+const requireFromHere = createRequire(import.meta.url);
+const dynamoClientPath = requireFromHere.resolve('./dynamoClient.js');
+
+const dynamoSendMock = vi.fn().mockResolvedValue({});
+
+const fakeDynamoClientModule = new Module(dynamoClientPath);
+fakeDynamoClientModule.exports = {
+  docClient: { send: dynamoSendMock },
+  MATCHES_TABLE: 'test-matches-table',
+};
+Module._cache[dynamoClientPath] = fakeDynamoClientModule;
+
+const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } = await import('./handler.js');
 
 describe('Backend Handler Specification Tests', () => {
+  beforeEach(() => {
+    dynamoSendMock.mockClear();
+  });
+
   it('should get players list properly', async () => {
     const response = await getPlayers({});
     expect(response.statusCode).toBe(200);
@@ -55,6 +77,12 @@ describe('Backend Handler Specification Tests', () => {
     const resultBody = JSON.parse(resultResponse.body);
     expect(resultBody.match.matchId).toBe(body.matchId);
     expect(resultBody.match.player1Id).toBe('ai-okano');
+
+    // 試合終了後のスコアボードがDynamoDBへ記録されていること
+    expect(dynamoSendMock).toHaveBeenCalledTimes(1);
+    const putCommand = dynamoSendMock.mock.calls[0][0];
+    expect(putCommand.input.TableName).toBe('test-matches-table');
+    expect(putCommand.input.Item.matchId).toBe(body.matchId);
   });
 
   it('should get matches list properly', async () => {
@@ -163,7 +191,12 @@ describe('Backend Handler Specification Tests', () => {
       })
     });
     expect(resSuccess.statusCode).toBe(200);
-    
+
+    // 試合終了後のスコアボードがDynamoDBへ記録されていること
+    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(putCommand.input.TableName).toBe('test-matches-table');
+    expect(putCommand.input.Item.matchId).toBe('test-match-id');
+
     // AI vs Human
     const resSuccess2 = await saveMatch({
       body: JSON.stringify({
@@ -196,6 +229,40 @@ describe('Backend Handler Specification Tests', () => {
   it('should handle saveMatch error', async () => {
     const resError = await saveMatch({ body: '{invalid-json}' });
     expect(resError.statusCode).toBe(500);
+  });
+
+  it('should record the match to DynamoDB even when optional fields (scores/shocks/logs) are omitted', async () => {
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-missing-optional-fields',
+        player1Id: 'human',
+        player2Id: 'ai-okano',
+        winnerId: 'human',
+      })
+    });
+
+    expect(res.statusCode).toBe(200);
+    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(putCommand.input.Item.matchId).toBe('test-missing-optional-fields');
+  });
+
+  it('should still return the match result even if recording to DynamoDB fails', async () => {
+    dynamoSendMock.mockRejectedValueOnce(new Error('DynamoDB unavailable'));
+
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-dynamo-failure',
+        player1Id: 'human',
+        player2Id: 'ai-okano',
+        winnerId: 'human',
+        scores: { p1: 10, p2: 5 },
+        shocks: { p1: 0, p2: 1 },
+        logs: []
+      })
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).success).toBe(true);
   });
 
   it('should generate mock commentary for specific actions', async () => {
