@@ -188,6 +188,22 @@ describe('Home Component', () => {
     fireEvent.click(backBtn);
   });
 
+  it('still syncs with external URL changes after navigating to the already-current view (e.g. clicking the header icon while on LOBBY)', async () => {
+    const { rerender } = render(<HomeContent />);
+
+    // すでにLOBBYにいる状態でヘッダー（アイコン部分）をクリックする
+    const header = screen.getByText('Electric Chair Arena').closest('header');
+    fireEvent.click(header!);
+
+    // ブラウザの戻る/進む操作等によるURLの外部変化を模倣する
+    mockGet.mockReturnValue('GAME');
+    rerender(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始').length).toBeGreaterThan(0);
+    });
+  });
+
   it('can navigate to SCOREBOARDS', async () => {
     render(<HomeContent />);
     const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
