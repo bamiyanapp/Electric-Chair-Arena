@@ -1,6 +1,6 @@
-# データベース設計（インメモリ実装）
+# データベース設計（インメモリ実装 + DynamoDB書き込み）
 
-現状の実装（`backend/handler.js`）はDynamoDB/SQLiteではなく、Lambdaプロセス内のインメモリ配列（`playersDb`, `matchesDb`）でデータを保持する。`serverless.yml` にはDynamoDB Localのプラグイン設定があるが、`handler.js` から実際に参照されてはいない。以下は現在のデータ構造を記述したものであり、将来的にDynamoDB等へ移行する場合のスキーマ案としても利用できる。
+現状の実装（`backend/handler.js`）は、読み取り（一覧・詳細取得）はLambdaプロセス内のインメモリ配列（`playersDb`, `matchesDb`）を参照する。一方、試合終了時（`startMatch` / `saveMatch`）にはスコアボードを `Matches` DynamoDBテーブル（`backend/serverless.yml` の `MatchesTable` リソース、`backend/dynamoClient.js`）へも書き込む。DynamoDBへの書き込みに失敗した場合もAPIレスポンスは通常通り返す（ベストエフォートの記録であり、書き込み失敗が対戦結果のレスポンスをブロックしない）。以下は現在のデータ構造を記述したものであり、DynamoDBのスキーマとしても利用される。
 
 ## 1. データ構造
 

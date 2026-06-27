@@ -18,6 +18,8 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.700.0",
+    "@aws-sdk/lib-dynamodb": "^3.700.0",
     "@google/genai": "^2.9.0"
   }
 }
