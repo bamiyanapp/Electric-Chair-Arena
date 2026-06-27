@@ -71,7 +71,9 @@
     "allow": [
       "Bash(*)",
       "Read(*)",
-      "Edit(*)"
+      "Edit(*)",
+      "Write(*)",
+      "Skill(*)"
     ]
   }
 }
