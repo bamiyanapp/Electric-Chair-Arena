@@ -32,3 +32,6 @@ Thumbs.db
 
 # Backup files
 backend/karuta-phrases-backup.json
+
+# Log files
+*.log

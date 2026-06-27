@@ -70,6 +70,12 @@
     ],
     "allow": [
       "Bash(*)",
+      "Bash(git *)",
+      "Bash(git)",
+      "Bash(ls *)",
+      "Bash(ls)",
+      "Bash(/bin/ls *)",
+      "Bash(/bin/ls)",
       "Read(*)",
       "Edit(*)",
       "Write(*)",
