@@ -832,10 +832,13 @@ describe('Home Component', () => {
     // Click to see final result
     fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
 
-    // Should show WINNER screen
+    // Should show WINNER screen in PVP_GAME view
     await waitFor(() => {
       expect(screen.getAllByText('WINNER')[0]).toBeDefined();
       expect(screen.getAllByText('プレイヤー1')[0]).toBeDefined();
     });
+    
+    // Verify we're still in PVP_GAME view (not RESULT view)
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('view=PVP_GAME'), { scroll: false });
   });
 });
