@@ -604,7 +604,7 @@ export function HomeContent() {
                   <BaseballScoreboard match={matchResult} />
                 </div>
 
-                {matchResult.winner && pvpStage === 'SHOW_RESULT' ? (
+                {matchResult.winner && (pvpStage === 'SHOW_RESULT' || pvpStage === 'LOBBY_START') ? (
                   <div className="text-center p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl mb-6 border border-orange-100">
                     <h3 className="text-3xl font-black text-amber-900 mb-2">
                       {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
@@ -872,7 +872,7 @@ export function HomeContent() {
                               setCommentary('');
                               
                               if (isGameOver) {
-                                setCurrentView('RESULT');
+                                setCurrentView('PVP_GAME');
                               } else {
                                 const nextTurn = matchResult.logs.length + 2;
                                 const nextIsP1Setter = nextTurn % 2 !== 0;
