@@ -13,11 +13,12 @@ permissions:
 
 jobs:
   ci:
-    # TODO: dev-standards の claude/electric-chair-code-standard-hj4kfi (node_version/enable_release_sync対応) が
+    # TODO: dev-standards の claude/electric-chair-code-standard-hj4kfi (node_version/enable_release_sync/workspaces対応) が
     # main にマージされ次第、このSHA固定を `@main` に戻すこと。
-    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@b50cd825dec7ed66880d7c62a366692bb88da59c
+    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@3fd203e667088b17f4480f2f590dedd4d7151112
     with:
       node_version: '24'
       enable_release_sync: false
+      workspaces: true
     secrets:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
