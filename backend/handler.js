@@ -7,6 +7,15 @@ const { PutCommand, GetCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb')
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
 const { initialPlayers, initialMatches } = require('./seedData.js');
 
+const ELO_K_FACTOR = 32;
+
+// ELOレーティングの変動量を計算する。resultは対戦結果(1=勝ち, 0.5=分け, 0=負け)。
+// 戻り値はplayerRating側の増減量(相手はこの値をマイナスした分だけ増減させる)。
+function computeEloDiff(playerRating, opponentRating, result) {
+  const expected = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+  return Math.round(ELO_K_FACTOR * (result - expected));
+}
+
 // 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
 async function recordMatchToDynamo(match) {
   try {
@@ -413,15 +422,13 @@ module.exports.startMatch = async (event) => {
 
     let winner = null;
     let ratingDiff = 0;
-    const kFactor = 32;
 
     if (winnerId !== 'draw') {
       winner = winnerId === p1.playerId ? p1 : p2;
       const loser = winnerId === p1.playerId ? p2 : p1;
 
       // ELOレーティング更新
-      const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
-      ratingDiff = Math.round(kFactor * (1 - expectedWinner));
+      ratingDiff = computeEloDiff(winner.rating, loser.rating, 1);
 
       winner.rating += ratingDiff;
       loser.rating -= ratingDiff;
@@ -436,8 +443,7 @@ module.exports.startMatch = async (event) => {
       await Promise.all([savePlayer(winner), savePlayer(loser)]);
     } else {
       // 引き分け
-      const expectedP1 = 1 / (1 + Math.pow(10, (p2.rating - p1.rating) / 400));
-      const p1Diff = Math.round(kFactor * (0.5 - expectedP1));
+      const p1Diff = computeEloDiff(p1.rating, p2.rating, 0.5);
 
       p1.rating += p1Diff;
       p2.rating -= p1Diff;
@@ -648,35 +654,19 @@ module.exports.saveMatch = async (event) => {
     }
 
     let ratingDiff = 0;
-    
-    // AIのレーティングを更新 (相手が人間の場合)
-    if (player1Id === 'human' && player2Id !== 'human') {
-      const aiPlayer = p2;
-      const isAiWinner = winnerId === aiPlayer.playerId;
-      const isDraw = winnerId === 'draw';
-      const humanRating = 1500;
-      
-      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
-      const kFactor = 32;
-      const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
-      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
-      
-      aiPlayer.rating += ratingDiff;
-      aiPlayer.matchCount += 1;
-      if (isAiWinner) aiPlayer.winCount += 1;
-      aiPlayer.updatedAt = new Date().toISOString();
-      await savePlayer(aiPlayer);
-    } else if (player2Id === 'human' && player1Id !== 'human') {
-      const aiPlayer = p1;
+
+    // AIのレーティングを更新 (相手が人間の場合。人間側はレーティングを持たないため更新・保存しない)
+    const isPlayer1Human = player1Id === 'human';
+    const isPlayer2Human = player2Id === 'human';
+    if (isPlayer1Human !== isPlayer2Human) {
+      const aiPlayer = isPlayer1Human ? p2 : p1;
       const isAiWinner = winnerId === aiPlayer.playerId;
       const isDraw = winnerId === 'draw';
       const humanRating = 1500;
 
-      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
-      const kFactor = 32;
       const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
-      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
-      
+      ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
+
       aiPlayer.rating += ratingDiff;
       aiPlayer.matchCount += 1;
       if (isAiWinner) aiPlayer.winCount += 1;
