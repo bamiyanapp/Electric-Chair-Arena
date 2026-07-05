@@ -25,6 +25,7 @@ type GameLog = {
 
 type MatchResult = {
   matchId: string;
+  mode: 'human' | 'pvp';
   player1: Player;
   player2: Player;
   winner: string;
@@ -411,8 +412,8 @@ export function HomeContent() {
     }
   }, []);
 
-  const isGameActive = (currentView === 'GAME' && matchResult && matchResult.matchId.startsWith('match-human-')) ||
-                       (currentView === 'PVP_GAME' && matchResult && matchResult.matchId.startsWith('match-pvp-'));
+  const isGameActive = (currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
+                       (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp');
 
   return (
     <main className="min-h-screen p-4 sm:p-8 bg-gray-50 text-gray-900 font-sans">
@@ -554,6 +555,7 @@ export function HomeContent() {
                   // BaseballScoreboardコンポーネントのPropsに合わせるため、一部データをモックで補完
                   const mockMatchResult: MatchResult = {
                     matchId: m.matchId,
+                    mode: m.matchId.startsWith('match-pvp-') ? 'pvp' : 'human',
                     player1: players.find(p => p.playerId === m.player1Id) || { playerId: m.player1Id, name: m.player1Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
                     player2: players.find(p => p.playerId === m.player2Id) || { playerId: m.player2Id, name: m.player2Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
                     winner: m.winnerId,
@@ -577,7 +579,7 @@ export function HomeContent() {
 
         {currentView === 'PVP_GAME' && (
           <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            {(!matchResult || !matchResult.matchId.startsWith('match-pvp-')) && (
+            {(!matchResult || matchResult.mode !== 'pvp') && (
               <>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
@@ -590,6 +592,7 @@ export function HomeContent() {
                       setLoading(true);
                       setMatchResult({
                         matchId: `match-pvp-${Date.now()}`,
+                        mode: 'pvp',
                         player1: { playerId: 'p1', name: 'プレイヤー1', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
                         player2: { playerId: 'p2', name: 'プレイヤー2', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
                         winner: '',
@@ -617,7 +620,7 @@ export function HomeContent() {
               </>
             )}
 
-            {matchResult && matchResult.matchId.startsWith('match-pvp-') && (
+            {matchResult && matchResult.mode === 'pvp' && (
               <div className="">
                 <div className="mb-6">
                   <BaseballScoreboard match={matchResult} />
@@ -963,6 +966,7 @@ export function HomeContent() {
                     setLoading(true);
                     setMatchResult({
                       matchId: `match-human-${Date.now()}`,
+                      mode: 'human',
                       player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
                       player2: players.find(p => p.playerId === player2Id)!,
                       winner: '',
@@ -987,7 +991,7 @@ export function HomeContent() {
               </div>
             )}
 
-            {matchResult && matchResult.matchId.startsWith('match-human-') && (
+            {matchResult && matchResult.mode === 'human' && (
               <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
                 <div className="mb-6">
                   <BaseballScoreboard match={matchResult} />
