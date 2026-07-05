@@ -119,6 +119,11 @@ export function HomeContent() {
   // 複数回ナビゲートした場合、古い呼び出しのタイムアウトが新しい呼び出しの
   // pendingViewRefを誤って解除してしまわないようにするための識別子。
   const pendingTokenRef = React.useRef(0);
+  // ロビーへ戻るたびに増やすトークン。進行中のターン処理(sleep等で一時停止中の
+  // 非同期処理)がこのトークンを起動時点の値と比較し、不一致ならstate更新を
+  // 中断する。これにより、離脱後に開始した別の試合の状態を古いターン処理が
+  // 上書きしてしまうのを防ぐ。
+  const matchTokenRef = React.useRef(0);
   // pendingViewRefをタイムアウトで解除した際、URL同期effectを再実行させる
   // ためのトリガー。ref変更はReactの再レンダリングを引き起こさないため、
   // この状態変化がない場合タイムアウトでの解除がeffectに反映されない。
@@ -140,6 +145,11 @@ export function HomeContent() {
   }, [viewFromUrl, currentView, pendingGuardTick]);
 
   const setCurrentView = (view: 'LOBBY' | 'RESULT' | 'GAME' | 'PVP_GAME' | 'LEADERBOARD' | 'SCOREBOARDS') => {
+    if (view === 'LOBBY') {
+      // 進行中の試合から離脱するため、以降このトークンを起動時点の値と
+      // 比較する進行中の非同期ターン処理はすべて無効化される。
+      matchTokenRef.current += 1;
+    }
     // viewがcurrentViewと同値の場合、setCurrentViewStateはReactにより
     // 再レンダリングがバイパスされるためeffectが再実行されず、
     // pendingViewRefをセットすると永久に解除されなくなる。
@@ -227,8 +237,14 @@ export function HomeContent() {
     isShocked: boolean;
   };
 
+  // fetchCommentaryの呼び出しごとに発行するトークン。応答が返ってきた時点で
+  // 最新の呼び出しでなければ(=次のターンが既に始まっていれば)、古い応答で
+  // commentaryを上書きしない。
+  const commentaryRequestIdRef = React.useRef(0);
+
   // TODO: バックエンドAPIに置き換える
   const fetchCommentary = async (state: GameStateInfo, action: ActionInfo) => {
+    const requestId = (commentaryRequestIdRef.current += 1);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
       const res = await fetch(`${apiUrl}/generate-commentary`, {
@@ -240,6 +256,7 @@ export function HomeContent() {
         throw new Error(`commentary fetch failed: ${res.status}`);
       }
       const data = await res.json();
+      if (requestId !== commentaryRequestIdRef.current) return;
       if (data.commentary) {
         setCommentary(data.commentary);
       } else {
@@ -247,7 +264,9 @@ export function HomeContent() {
       }
     } catch (e) {
       console.warn('Failed to fetch commentary', e);
-      setCommentary('解説の取得に失敗しました。');
+      if (requestId === commentaryRequestIdRef.current) {
+        setCommentary('解説の取得に失敗しました。');
+      }
     }
   };
 
@@ -726,6 +745,7 @@ export function HomeContent() {
                               className={`w-14 h-14 rounded-full font-bold flex items-center justify-center transition-all duration-300 ${chairClass}`}
                               onClick={async () => {
                                 if (loading) return;
+                                const token = matchTokenRef.current;
                                 playSound('/fix.mp3');
                                 setLoading(true);
                                 try {
@@ -748,6 +768,7 @@ export function HomeContent() {
                                     setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が${chosen}番の椅子を選択しました！ 運命の瞬間...`);
                                     
                                     await sleep(1500);
+                                    if (matchTokenRef.current !== token) return;
 
                                     const newScores = { ...matchResult.scores };
                                     const newShocks = { ...matchResult.shocks };
@@ -1120,6 +1141,7 @@ export function HomeContent() {
                               className={`w-14 h-14 rounded-full font-bold flex items-center justify-center transition-all duration-300 ${chairClass}`}
                               onClick={async () => {
                                 if (loading || gameStep !== 'IDLE') return;
+                                const token = matchTokenRef.current;
                                 playSound('/fix.mp3');
                                 setLoading(true);
                                 try {
@@ -1139,18 +1161,21 @@ export function HomeContent() {
                                     setGameStep('AI_THINKING');
                                     setStatusMessage(`あなたは ${chair}番の椅子に電流を仕掛けました。AIが座る椅子を選んでいます...`);
                                     await sleep(1500);
+                                    if (matchTokenRef.current !== token) return;
 
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, newShocks.p1);
+                                    if (matchTokenRef.current !== token) return;
                                     playSound('/fix.mp3');
                                     aiChosenChair = aiRes.chosenChair;
                                     const humanSetChairs = [chair];
-                                    
+
                                     isShocked = humanSetChairs.includes(aiChosenChair);
 
                                     setGameStep('REVEALING');
                                     setHighlightedChair(aiChosenChair);
                                     setStatusMessage(`AIは ${aiChosenChair}番の椅子を選択しました！ 運命の瞬間...`);
                                     await sleep(1500);
+                                    if (matchTokenRef.current !== token) return;
 
                                     setGameStep('SHOW_RESULT');
                                     if (isShocked) {
@@ -1171,8 +1196,10 @@ export function HomeContent() {
                                     setGameStep('REVEALING');
                                     setStatusMessage(`あなたは ${chair}番の椅子に座ろうとしています... 電流が流れているかチェック中...`);
                                     await sleep(1500);
+                                    if (matchTokenRef.current !== token) return;
 
                                     const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, newShocks.p1);
+                                    if (matchTokenRef.current !== token) return;
                                     playSound('/fix.mp3');
                                     const aiSetChairs = aiRes.setChairs;
                                     const humanChosenChair = chair;
