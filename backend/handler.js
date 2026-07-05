@@ -16,6 +16,18 @@ function computeEloDiff(playerRating, opponentRating, result) {
   return Math.round(ELO_K_FACTOR * (result - expected));
 }
 
+// エラー発生時の共通レスポンスを組み立てる。内部のエラーメッセージ/スタックは
+// クライアントに返さず、相関用のrequestIdとともにサーバー側ログにのみ出力する。
+function errorResponse(statusCode, clientMessage, logContext, error) {
+  const requestId = `${logContext}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  console.error(`[${requestId}] ${logContext} failed:`, error);
+  return {
+    statusCode,
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: JSON.stringify({ error: clientMessage, requestId }),
+  };
+}
+
 // 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
 async function recordMatchToDynamo(match) {
   try {
@@ -152,11 +164,7 @@ module.exports.getAiMove = async (event) => {
       body: JSON.stringify(move),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to compute AI move', 'getAiMove', error);
   }
 };
 
@@ -487,25 +495,61 @@ module.exports.startMatch = async (event) => {
       }),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to start match', 'startMatch', error);
   }
 };
 
+const COMMENTARY_MAX_BODY_LENGTH = 10 * 1024; // これを超えるリクエストボディは即座に拒否する
+const COMMENTARY_TIMEOUT_MS = 5000; // Gemini APIの応答が遅い場合はモック解説にフォールバックする
+const COMMENTARY_CACHE_MAX_SIZE = 200;
+const commentaryCache = new Map();
+
+// gameState/actionから想定するフィールドのみを安全な型で取り出す。
+// 未検証の値をそのままプロンプトへ埋め込まない(プロンプトインジェクション対策)。
+function sanitizeGameStateForCommentary(gameState) {
+  if (!gameState || typeof gameState !== 'object') return {};
+  const toScoreLike = (value) => ({
+    p1: Number.isFinite(value?.p1) ? value.p1 : 0,
+    p2: Number.isFinite(value?.p2) ? value.p2 : 0,
+  });
+  const remainingChairs = Array.isArray(gameState.remainingChairs)
+    ? gameState.remainingChairs.filter((c) => Number.isInteger(c)).slice(0, GAME_RULES.TOTAL_CHAIRS)
+    : [];
+  return {
+    scores: toScoreLike(gameState.scores),
+    shocks: toScoreLike(gameState.shocks),
+    remainingChairs,
+    winner: typeof gameState.winner === 'string' ? gameState.winner.slice(0, 50) : '',
+  };
+}
+
+function sanitizeActionForCommentary(action) {
+  if (!action || typeof action !== 'object') return {};
+  return {
+    isHumanSetter: action.isHumanSetter === true,
+    chosenChair: Number.isInteger(action.chosenChair) ? action.chosenChair : null,
+    isShocked: action.isShocked === true,
+  };
+}
+
 module.exports.generateCommentary = async (event) => {
   try {
+    if (event.body && event.body.length > COMMENTARY_MAX_BODY_LENGTH) {
+      return {
+        statusCode: 413,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Request body too large' }),
+      };
+    }
+
     const body = event.body ? JSON.parse(event.body) : {};
-    const { gameState, action } = body;
-    
+    const gameState = sanitizeGameStateForCommentary(body.gameState);
+    const action = sanitizeActionForCommentary(body.action);
+
     const generateMockCommentary = () => {
-      if (action && action.isShocked) {
+      if (action.isShocked) {
         return '「おおっと！ここで痛恨のビリビリだあああ！」';
-      } else if (action && action.chosenChair) {
+      } else if (action.chosenChair) {
         return `「${action.chosenChair}番の椅子で勝負に出た！見事セーフ！」`;
       }
       return '「熱い戦いが続いています！」';
@@ -513,33 +557,57 @@ module.exports.generateCommentary = async (event) => {
 
     if (!process.env.GEMINI_API) {
       console.warn('GEMINI_API is not configured, returning mock commentary.');
-      return { 
-        statusCode: 200, 
+      return {
+        statusCode: 200,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ commentary: generateMockCommentary() }) 
+        body: JSON.stringify({ commentary: generateMockCommentary() })
+      };
+    }
+
+    const cacheKey = JSON.stringify({ gameState, action });
+    const cached = commentaryCache.get(cacheKey);
+    if (cached) {
+      // LRU相当: 再利用したエントリを最新として挿入し直す
+      commentaryCache.delete(cacheKey);
+      commentaryCache.set(cacheKey, cached);
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ commentary: cached }),
       };
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
     const prompt = `あなたは「ビリビリ椅子取りゲーム」の実況解説者です。
-現在のゲームの状況: ${JSON.stringify(gameState || {})}
-直前のアクション: ${JSON.stringify(action || {})}
+現在のゲームの状況: ${JSON.stringify(gameState)}
+直前のアクション: ${JSON.stringify(action)}
 この状況を踏まえて、熱く短く（1〜2文程度で）実況解説をしてください。`;
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Gemini API timeout')), COMMENTARY_TIMEOUT_MS);
       });
+      const response = await Promise.race([
+        ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt }),
+        timeout,
+      ]);
       const text = response.text;
+      const commentary = text || generateMockCommentary();
+
+      if (text) {
+        if (commentaryCache.size >= COMMENTARY_CACHE_MAX_SIZE) {
+          commentaryCache.delete(commentaryCache.keys().next().value);
+        }
+        commentaryCache.set(cacheKey, commentary);
+      }
 
       return {
         statusCode: 200,
         headers: {
           'Access-Control-Allow-Origin': '*',
         },
-        body: JSON.stringify({ commentary: text || generateMockCommentary() }),
+        body: JSON.stringify({ commentary }),
       };
     } catch (apiError) {
       console.error('Gemini API Error:', apiError);
@@ -552,14 +620,7 @@ module.exports.generateCommentary = async (event) => {
       };
     }
   } catch (error) {
-    console.error('Error generating commentary:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: JSON.stringify({ error: 'Failed to generate commentary' }),
-    };
+    return errorResponse(500, 'Failed to generate commentary', 'generateCommentary', error);
   }
 };
 
@@ -696,12 +757,6 @@ module.exports.saveMatch = async (event) => {
       body: JSON.stringify({ success: true, match: newMatch }),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to save match', 'saveMatch', error);
   }
 };
