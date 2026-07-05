@@ -4,6 +4,21 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { GAME_RULES } from '@/constants/rules';
 
+const DEFAULT_API_URL = 'http://localhost:3000/dev';
+let hasWarnedMissingApiUrl = false;
+
+// NEXT_PUBLIC_API_URLが未設定の場合、開発用のlocalhostへ静かにフォールバック
+// すると本番ビルドでAPI呼び出しが全て失敗する事故に気づきにくいため、
+// 未設定時は一度だけ警告を出す。
+function getApiUrl(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!apiUrl && !hasWarnedMissingApiUrl) {
+    hasWarnedMissingApiUrl = true;
+    console.warn(`NEXT_PUBLIC_API_URL is not set. Falling back to ${DEFAULT_API_URL}, which will not work in production.`);
+  }
+  return apiUrl || DEFAULT_API_URL;
+}
+
 type Player = {
   playerId: string;
   name: string;
@@ -44,6 +59,41 @@ type MatchRecord = {
   createdAt: string;
   logs: GameLog[];
 };
+
+function isValidGameLog(value: unknown): value is GameLog {
+  if (!value || typeof value !== 'object') return false;
+  const log = value as Record<string, unknown>;
+  return (
+    typeof log.turn === 'number' &&
+    typeof log.isHumanSetter === 'boolean' &&
+    typeof log.chosenChair === 'number' &&
+    typeof log.isShocked === 'boolean' &&
+    Array.isArray(log.remainingChairs)
+  );
+}
+
+// localStorageの内容は手動編集や旧スキーマとの混在で壊れている可能性があるため、
+// BaseballScoreboardへ渡す前に構造を検証し、壊れた要素は読み捨てる。
+function isValidMatchRecord(value: unknown): value is MatchRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.matchId === 'string' &&
+    typeof record.player1Id === 'string' &&
+    typeof record.player2Id === 'string' &&
+    typeof record.winnerId === 'string' &&
+    typeof record.ratingDiff === 'number' &&
+    typeof record.createdAt === 'string' &&
+    Array.isArray(record.logs) &&
+    record.logs.every(isValidGameLog)
+  );
+}
+
+function parseStoredMatches(raw: string): MatchRecord[] {
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(isValidMatchRecord);
+}
 
 function BaseballScoreboard({ match }: { match: MatchResult }) {
   const maxInnings = Math.max(1, Math.ceil((match.logs.length + 1) / 2));
@@ -427,10 +477,20 @@ export function HomeContent() {
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+  // 同じ効果音を毎回`new Audio()`し直すと再生のたびに要素を生成・破棄することになるため、
+  // srcごとにHTMLAudioElementを使い回す。連続再生時に頭出しできるようcurrentTimeをリセットする。
+  const audioPoolRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
+
   const playSound = (src: string) => {
     if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-      const audio = new Audio(`${basePath}${src}`);
+      const url = `${basePath}${src}`;
+      let audio = audioPoolRef.current.get(url);
+      if (!audio) {
+        audio = new Audio(url);
+        audioPoolRef.current.set(url, audio);
+      }
+      audio.currentTime = 0;
       audio.play().catch(err => console.warn('Audio play failed:', err));
     }
   };
@@ -457,7 +517,7 @@ export function HomeContent() {
   const fetchCommentary = async (state: GameStateInfo, action: ActionInfo) => {
     const requestId = (commentaryRequestIdRef.current += 1);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/generate-commentary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -485,7 +545,7 @@ export function HomeContent() {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
       // 現状はバックエンドと結合していないためモックのままにするか、直接実装する
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const apiUrl = getApiUrl();
       
       const res = await fetch(`${apiUrl}/ai-move`, {
         method: 'POST',
@@ -510,7 +570,7 @@ export function HomeContent() {
 
   const fetchMatches = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const apiUrl = getApiUrl();
       const res = await fetch(`${apiUrl}/get-matches`);
       if (res.ok) {
         const data = await res.json();
@@ -525,7 +585,7 @@ export function HomeContent() {
     try {
       const localMatches = localStorage.getItem('electric_chair_matches');
       if (localMatches) {
-        setMatchesList(JSON.parse(localMatches));
+        setMatchesList(parseStoredMatches(localMatches));
       } else {
         // 初期モックデータ
         const mockMatches: MatchRecord[] = [
@@ -582,7 +642,7 @@ export function HomeContent() {
     // 常にLocalStorageにも保存する
     try {
       const localMatches = localStorage.getItem('electric_chair_matches');
-      const parsedMatches = localMatches ? JSON.parse(localMatches) : [];
+      const parsedMatches = localMatches ? parseStoredMatches(localMatches) : [];
       parsedMatches.unshift(matchRecord);
       localStorage.setItem('electric_chair_matches', JSON.stringify(parsedMatches));
     } catch (e) {
@@ -590,7 +650,7 @@ export function HomeContent() {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/dev';
+      const apiUrl = getApiUrl();
       await fetch(`${apiUrl}/save-match`, {
         method: 'POST',
         headers: {
