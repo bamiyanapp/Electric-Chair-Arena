@@ -580,4 +580,32 @@ describe('Backend Handler Specification Tests', () => {
       }
     }
   });
+
+  it('should handle a draw reached via chair exhaustion inside startMatch itself (regression test for the untested draw branch)', async () => {
+    // Math.randomを固定することで、ai-nash対ai-koyabuの対戦が
+    // 椅子枯渇による引き分け(スコア・感電数とも同点)で終わることを再現する。
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.1);
+
+    try {
+      const response = await startMatch({
+        body: JSON.stringify({ player1Id: 'ai-nash', player2Id: 'ai-koyabu' }),
+      });
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+
+      expect(body.winner).toBe('draw');
+      expect(body.ratingDiff).toBe(0);
+      expect(body.scores.p1).toBe(body.scores.p2);
+      expect(body.shocks.p1).toBe(body.shocks.p2);
+
+      // 引き分け時は両プレイヤーのレーティングがDynamoDBへ保存されていること
+      const playerPutCommands = dynamoSendMock.mock.calls
+        .map(([command]) => command)
+        .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
+      const savedPlayerIds = playerPutCommands.map((command) => command.input.Item.playerId).sort();
+      expect(savedPlayerIds).toEqual(['ai-koyabu', 'ai-nash']);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
 });
