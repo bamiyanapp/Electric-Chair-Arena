@@ -3,8 +3,9 @@
 const { GAME_RULES } = require('./rules.js');
 const { GoogleGenAI } = require('@google/genai');
 const { getNashMove } = require('./nash.js');
-const { PutCommand } = require('@aws-sdk/lib-dynamodb');
-const { docClient, MATCHES_TABLE } = require('./dynamoClient.js');
+const { PutCommand, GetCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
+const { initialPlayers, initialMatches } = require('./seedData.js');
 
 // 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
 async function recordMatchToDynamo(match) {
@@ -15,215 +16,74 @@ async function recordMatchToDynamo(match) {
   }
 }
 
-// AIプレイヤーの初期データ
-const initialPlayers = [
-  {
-    playerId: 'ai-okano',
-    name: '岡野陽一風AI',
-    type: 'personality',
-    rating: 1550,
-    winCount: 42,
-    matchCount: 80,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    playerId: 'ai-koyabu',
-    name: '小籔千豊風AI',
-    type: 'personality',
-    rating: 1600,
-    winCount: 55,
-    matchCount: 90,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    playerId: 'ai-junior',
-    name: '千原ジュニア風AI',
-    type: 'personality',
-    rating: 1620,
-    winCount: 61,
-    matchCount: 100,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    playerId: 'ai-random',
-    name: 'ランダムAI',
-    type: 'random',
-    rating: 1400,
-    winCount: 20,
-    matchCount: 70,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    playerId: 'ai-rule-based',
-    name: '期待値計算AI',
-    type: 'rule_based',
-    rating: 1520,
-    winCount: 35,
-    matchCount: 75,
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    playerId: 'ai-nash',
-    name: 'ナッシュ均衡AI',
-    type: 'nash',
-    rating: 1650,
-    winCount: 70,
-    matchCount: 95,
-    updatedAt: new Date().toISOString(),
-  },
-];
-
-// 過去の試合履歴の初期データ
-const initialMatches = [
-  {
-    matchId: 'match-1718970000000',
-    player1Id: 'ai-okano',
-    player2Id: 'ai-junior',
-    winnerId: 'ai-junior',
-    ratingDiff: 16,
-    scores: { p1: 15, p2: 40 },
-    shocks: { p1: 1, p2: 0 },
-    logs: [
-      {
-        turn: 1,
-        setter: '岡野陽一風AI',
-        chooser: '千原ジュニア風AI',
-        shockedChairs: [10, 11, 12],
-        chosenChair: 6,
-        isShocked: false,
-        scoreGained: 6,
-        scores: { p1: 0, p2: 6 },
-        shocks: { p1: 0, p2: 0 },
-        remainingChairs: [1,2,3,4,5,7,8,9,10,11,12],
-        reasoning: '「ここは勝負どころ。あいつは絶対高得点（10〜12）を欲しがって座りにくるはず。そこに罠を張るのが勝負師ってものよ！」\n「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中、一番心理的に狙いにくい位置がド本命や。」'
-      },
-      {
-        turn: 2,
-        setter: '千原ジュニア風AI',
-        chooser: '岡野陽一風AI',
-        shockedChairs: [1, 5, 8],
-        chosenChair: 12,
-        isShocked: false,
-        scoreGained: 12,
-        scores: { p1: 12, p2: 6 },
-        shocks: { p1: 0, p2: 0 },
-        remainingChairs: [1,2,3,4,5,7,8,9,10,11],
-        reasoning: '「ええか、相手はさっき俺が低い数字を狙ったのを見てるわけやん？やから今度は絶対に高い数字に逃げよる。ここを読めるかどうかがこのゲームのすべてやな。」\n「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！12点座って一気に40点に近づいたる！」'
-      },
-      {
-        turn: 3,
-        setter: '岡野陽一風AI',
-        chooser: '千原ジュニア風AI',
-        shockedChairs: [9, 10, 11],
-        chosenChair: 7,
-        isShocked: false,
-        scoreGained: 7,
-        scores: { p1: 12, p2: 13 },
-        shocks: { p1: 0, p2: 0 },
-        remainingChairs: [1,2,3,4,5,8,9,10,11],
-        reasoning: '「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」\n「あえてド真ん中、一番心理的に狙いにくい位置がド本命や。」'
-      },
-      {
-        turn: 4,
-        setter: '千原ジュニア風AI',
-        chooser: '岡野陽一風AI',
-        shockedChairs: [11],
-        chosenChair: 11,
-        isShocked: true,
-        scoreGained: 0,
-        scores: { p1: 0, p2: 13 },
-        shocks: { p1: 1, p2: 0 },
-        remainingChairs: [1,2,3,4,5,8,9,10],
-        reasoning: '「ええか、相手は絶対に高い数字に逃げよる。ここを読めるかどうかがこのゲームのすべてやな。」\n「俺の右手が座れと叫んでる！」'
-      },
-      {
-        turn: 5,
-        setter: '岡野陽一風AI',
-        chooser: '千原ジュニア風AI',
-        shockedChairs: [8, 9, 10],
-        chosenChair: 10,
-        isShocked: true,
-        scoreGained: 0,
-        scores: { p1: 0, p2: 0 },
-        shocks: { p1: 1, p2: 1 },
-        remainingChairs: [1,2,3,4,5,8,9],
-        reasoning: '「ここは勝負どころ。あいつは絶対高得点（10〜12）を欲しがって座りにくるはず。そこに罠を張るのが勝負師ってものよ！」\n「あえてド真ん中、一番心理的に狙いにくい位置がド本命や。」'
-      },
-      {
-        turn: 6,
-        setter: '千原ジュニア風AI',
-        chooser: '岡野陽一風AI',
-        shockedChairs: [1, 2, 3],
-        chosenChair: 9,
-        isShocked: false,
-        scoreGained: 9,
-        scores: { p1: 9, p2: 0 },
-        shocks: { p1: 1, p2: 1 },
-        remainingChairs: [1,2,3,4,5,8],
-        reasoning: '「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここを読めるかどうかがこのゲームのすべてやな。」\n「デカい当たり（高得点）に全ツッパ！」'
-      },
-      {
-        turn: 7,
-        setter: '岡野陽一風AI',
-        chooser: '千原ジュニア風AI',
-        shockedChairs: [1, 2],
-        chosenChair: 8,
-        isShocked: false,
-        scoreGained: 8,
-        scores: { p1: 9, p2: 8 },
-        shocks: { p1: 1, p2: 1 },
-        remainingChairs: [1,2,3,4,5],
-        reasoning: '「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」\n「一番心理的に狙いにくい位置がド本命や。」'
-      },
-      {
-        turn: 8,
-        setter: '千原ジュニア風AI',
-        chooser: '岡野陽一風AI',
-        shockedChairs: [4, 5],
-        chosenChair: 5,
-        isShocked: true,
-        scoreGained: 0,
-        scores: { p1: 0, p2: 8 },
-        shocks: { p1: 2, p2: 1 },
-        remainingChairs: [1,2,3,4],
-        reasoning: '「ええか、ここを読めるかどうかがこのゲームのすべてやな。」\n「俺の右手が座れと叫んでる！」'
-      },
-      {
-        turn: 9,
-        setter: '岡野陽一風AI',
-        chooser: '千原ジュニア風AI',
-        shockedChairs: [1],
-        chosenChair: 4,
-        isShocked: false,
-        scoreGained: 4,
-        scores: { p1: 0, p2: 12 },
-        shocks: { p1: 2, p2: 1 },
-        remainingChairs: [1,2,3],
-        reasoning: '「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」\n「一番心理的に狙いにくい位置がド本命や。」'
-      },
-      {
-        turn: 10,
-        setter: '千原ジュニア風AI',
-        chooser: '岡野陽一風AI',
-        shockedChairs: [3],
-        chosenChair: 3,
-        isShocked: true,
-        scoreGained: 0,
-        scores: { p1: 0, p2: 12 },
-        shocks: { p1: 3, p2: 1 },
-        remainingChairs: [1,2],
-        reasoning: '「ええか、ここを読めるかどうかがこのゲームのすべてやな。」\n「俺の右手が座れと叫んでる！」'
-      }
-    ],
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
+// プレイヤーのレーティング等をDynamoDBへ保存する。書き込み失敗時もゲーム結果のレスポンスは返す。
+async function savePlayer(player) {
+  try {
+    await docClient.send(new PutCommand({ TableName: PLAYERS_TABLE, Item: player }));
+  } catch (error) {
+    console.error(`Failed to save player ${player.playerId} to DynamoDB:`, error);
   }
-];
+}
 
-// インメモリデータベース
-let playersDb = [...initialPlayers];
-let matchesDb = [...initialMatches];
+// DynamoDBからプレイヤー一覧を取得する。未登録/取得失敗時は初期データにフォールバックする。
+async function loadPlayers() {
+  try {
+    const result = await docClient.send(new ScanCommand({ TableName: PLAYERS_TABLE }));
+    if (result.Items && result.Items.length > 0) {
+      return result.Items;
+    }
+  } catch (error) {
+    console.error('Failed to load players from DynamoDB:', error);
+  }
+  // initialPlayersの要素を直接返すと、呼び出し元がプレイヤーオブジェクトを
+  // 直接ミューテートする(レーティング更新など)際にシードデータの共有シングルトンを
+  // 汚染し、無関係な別リクエストの結果に混入してしまう。必ずコピーを返す。
+  return initialPlayers.map(p => ({ ...p }));
+}
+
+// DynamoDBから単一プレイヤーを取得する。未登録/取得失敗時は初期データにフォールバックする。
+async function getPlayerById(playerId) {
+  try {
+    const result = await docClient.send(new GetCommand({ TableName: PLAYERS_TABLE, Key: { playerId } }));
+    if (result.Item) {
+      return result.Item;
+    }
+  } catch (error) {
+    console.error(`Failed to get player ${playerId} from DynamoDB:`, error);
+  }
+  const fallback = initialPlayers.find(p => p.playerId === playerId);
+  return fallback ? { ...fallback } : null;
+}
+
+// DynamoDBから試合履歴一覧を取得する（作成日時の降順）。未登録/取得失敗時は初期データにフォールバックする。
+async function loadMatches() {
+  try {
+    const result = await docClient.send(new ScanCommand({ TableName: MATCHES_TABLE }));
+    if (result.Items && result.Items.length > 0) {
+      return [...result.Items].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+  } catch (error) {
+    console.error('Failed to load matches from DynamoDB:', error);
+  }
+  return [...initialMatches].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).map(m => ({ ...m }));
+}
+
+// DynamoDBから単一の試合結果を取得する。未登録/取得失敗時は初期データにフォールバックする。
+async function getMatchById(matchId) {
+  try {
+    const result = await docClient.send(new GetCommand({ TableName: MATCHES_TABLE, Key: { matchId } }));
+    if (result.Item) {
+      return result.Item;
+    }
+  } catch (error) {
+    console.error(`Failed to get match ${matchId} from DynamoDB:`, error);
+  }
+  const fallback = initialMatches.find(m => m.matchId === matchId);
+  return fallback ? { ...fallback } : null;
+}
 
 module.exports.getPlayers = async () => {
+  const players = await loadPlayers();
   return {
     statusCode: 200,
     headers: {
@@ -231,13 +91,14 @@ module.exports.getPlayers = async () => {
       'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
-      players: playersDb,
+      players,
     }),
   };
 };
 
 module.exports.getLeaderboard = async () => {
-  const sortedPlayers = [...playersDb].sort((a, b) => b.rating - a.rating);
+  const players = await loadPlayers();
+  const sortedPlayers = [...players].sort((a, b) => b.rating - a.rating);
   return {
     statusCode: 200,
     headers: {
@@ -280,6 +141,7 @@ module.exports.getAiMove = async (event) => {
 };
 
 module.exports.getMatches = async () => {
+  const matches = await loadMatches();
   return {
     statusCode: 200,
     headers: {
@@ -287,7 +149,7 @@ module.exports.getMatches = async () => {
       'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
-      matches: matchesDb,
+      matches,
     }),
   };
 };
@@ -307,7 +169,7 @@ module.exports.getMatchResult = async (event) => {
     };
   }
 
-  const match = matchesDb.find(m => m.matchId === matchId);
+  const match = await getMatchById(matchId);
 
   if (!match) {
     return {
@@ -447,8 +309,7 @@ module.exports.startMatch = async (event) => {
       };
     }
 
-    const p1 = playersDb.find(p => p.playerId === player1Id);
-    const p2 = playersDb.find(p => p.playerId === player2Id);
+    const [p1, p2] = await Promise.all([getPlayerById(player1Id), getPlayerById(player2Id)]);
 
     if (!p1 || !p2) {
       return {
@@ -550,9 +411,8 @@ module.exports.startMatch = async (event) => {
     const kFactor = 32;
 
     if (winnerId !== 'draw') {
-      const loserId = winnerId === p1.playerId ? p2.playerId : p1.playerId;
-      winner = playersDb.find(p => p.playerId === winnerId);
-      const loser = playersDb.find(p => p.playerId === loserId);
+      winner = winnerId === p1.playerId ? p1 : p2;
+      const loser = winnerId === p1.playerId ? p2 : p1;
 
       // ELOレーティング更新
       const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
@@ -567,11 +427,13 @@ module.exports.startMatch = async (event) => {
 
       winner.updatedAt = new Date().toISOString();
       loser.updatedAt = new Date().toISOString();
+
+      await Promise.all([savePlayer(winner), savePlayer(loser)]);
     } else {
       // 引き分け
       const expectedP1 = 1 / (1 + Math.pow(10, (p2.rating - p1.rating) / 400));
       const p1Diff = Math.round(kFactor * (0.5 - expectedP1));
-      
+
       p1.rating += p1Diff;
       p2.rating -= p1Diff;
 
@@ -580,6 +442,8 @@ module.exports.startMatch = async (event) => {
 
       p1.updatedAt = new Date().toISOString();
       p2.updatedAt = new Date().toISOString();
+
+      await Promise.all([savePlayer(p1), savePlayer(p2)]);
     }
 
     const matchId = `match-${Date.now()}`;
@@ -593,7 +457,6 @@ module.exports.startMatch = async (event) => {
       createdAt: new Date().toISOString(),
     };
 
-    matchesDb.unshift(newMatch);
     await recordMatchToDynamo(newMatch);
 
     return {
@@ -710,13 +573,74 @@ module.exports.saveMatch = async (event) => {
       };
     }
 
-    const p1 = player1Id === 'human'
-      ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
-      : playersDb.find(p => p.playerId === player1Id);
+    if (winnerId !== player1Id && winnerId !== player2Id && winnerId !== 'draw') {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'winnerId must be player1Id, player2Id, or "draw"' }),
+      };
+    }
 
-    const p2 = player2Id === 'human'
-      ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
-      : playersDb.find(p => p.playerId === player2Id);
+    const isNonNegativeInt = (value) => Number.isInteger(value) && value >= 0;
+    const isValidScoreOrShockField = (value) =>
+      value === undefined ||
+      (typeof value === 'object' && value !== null &&
+        isNonNegativeInt(value.p1) && isNonNegativeInt(value.p2));
+
+    if (!isValidScoreOrShockField(scores) || !isValidScoreOrShockField(shocks)) {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Credentials': true,
+        },
+        body: JSON.stringify({ error: 'scores and shocks must be objects with non-negative integer p1/p2 fields' }),
+      };
+    }
+
+    if (logs !== undefined) {
+      if (!Array.isArray(logs)) {
+        return {
+          statusCode: 400,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Credentials': true,
+          },
+          body: JSON.stringify({ error: 'logs must be an array' }),
+        };
+      }
+
+      const seenChairs = new Set();
+      for (const log of logs) {
+        const chosenChair = log && log.chosenChair;
+        if (chosenChair === undefined) continue;
+
+        const isValidChair = Number.isInteger(chosenChair) && chosenChair >= 1 && chosenChair <= GAME_RULES.TOTAL_CHAIRS;
+        if (!isValidChair || seenChairs.has(chosenChair)) {
+          return {
+            statusCode: 400,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Credentials': true,
+            },
+            body: JSON.stringify({ error: 'logs contain an invalid or duplicate chosenChair' }),
+          };
+        }
+        seenChairs.add(chosenChair);
+      }
+    }
+
+    const [p1, p2] = await Promise.all([
+      player1Id === 'human'
+        ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
+        : getPlayerById(player1Id),
+      player2Id === 'human'
+        ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
+        : getPlayerById(player2Id),
+    ]);
 
     if (!p1 || !p2) {
       return {
@@ -747,12 +671,13 @@ module.exports.saveMatch = async (event) => {
       aiPlayer.matchCount += 1;
       if (isAiWinner) aiPlayer.winCount += 1;
       aiPlayer.updatedAt = new Date().toISOString();
+      await savePlayer(aiPlayer);
     } else if (player2Id === 'human' && player1Id !== 'human') {
       const aiPlayer = p1;
       const isAiWinner = winnerId === aiPlayer.playerId;
       const isDraw = winnerId === 'draw';
       const humanRating = 1500;
-      
+
       const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
       const kFactor = 32;
       const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
@@ -762,6 +687,7 @@ module.exports.saveMatch = async (event) => {
       aiPlayer.matchCount += 1;
       if (isAiWinner) aiPlayer.winCount += 1;
       aiPlayer.updatedAt = new Date().toISOString();
+      await savePlayer(aiPlayer);
     }
 
     const newMatch = {
@@ -776,7 +702,6 @@ module.exports.saveMatch = async (event) => {
       createdAt: new Date().toISOString(),
     };
 
-    matchesDb.unshift(newMatch);
     await recordMatchToDynamo(newMatch);
 
     return {

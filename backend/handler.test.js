@@ -8,12 +8,51 @@ import Module from 'module';
 const requireFromHere = createRequire(import.meta.url);
 const dynamoClientPath = requireFromHere.resolve('./dynamoClient.js');
 
-const dynamoSendMock = vi.fn().mockResolvedValue({});
+// PutCommand/GetCommand/ScanCommandを実際のDynamoDBのように状態を持ってエミュレートする
+// (書き込み直後に読み出しても反映されるようにするため。テーブルはmatchId/playerIdをキーとするMapで表現する)。
+const dynamoTables = {
+  'test-matches-table': new Map(),
+  'test-players-table': new Map(),
+};
+const tableKeyName = {
+  'test-matches-table': 'matchId',
+  'test-players-table': 'playerId',
+};
+
+function defaultDynamoSend(command) {
+  const tableName = command.input.TableName;
+  const store = dynamoTables[tableName];
+  if (!store) return {};
+
+  switch (command.constructor.name) {
+    case 'PutCommand': {
+      const keyName = tableKeyName[tableName];
+      const key = command.input.Item[keyName];
+      if (command.input.ConditionExpression === `attribute_not_exists(${keyName})` && store.has(key)) {
+        throw Object.assign(new Error('ConditionalCheckFailedException'), { name: 'ConditionalCheckFailedException' });
+      }
+      store.set(key, command.input.Item);
+      return {};
+    }
+    case 'GetCommand': {
+      const key = Object.values(command.input.Key)[0];
+      const item = store.get(key);
+      return item ? { Item: item } : {};
+    }
+    case 'ScanCommand':
+      return { Items: Array.from(store.values()) };
+    default:
+      return {};
+  }
+}
+
+const dynamoSendMock = vi.fn((command) => Promise.resolve(defaultDynamoSend(command)));
 
 const fakeDynamoClientModule = new Module(dynamoClientPath);
 fakeDynamoClientModule.exports = {
   docClient: { send: dynamoSendMock },
   MATCHES_TABLE: 'test-matches-table',
+  PLAYERS_TABLE: 'test-players-table',
 };
 Module._cache[dynamoClientPath] = fakeDynamoClientModule;
 
@@ -21,7 +60,11 @@ const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, save
 
 describe('Backend Handler Specification Tests', () => {
   beforeEach(() => {
-    dynamoSendMock.mockClear();
+    // callsだけでなく、テストごとに上書きされ得るmockImplementationと「DB」の状態も既定値に戻す
+    dynamoSendMock.mockReset();
+    dynamoSendMock.mockImplementation((command) => Promise.resolve(defaultDynamoSend(command)));
+    dynamoTables['test-matches-table'].clear();
+    dynamoTables['test-players-table'].clear();
   });
 
   it('should get players list properly', async () => {
@@ -79,10 +122,19 @@ describe('Backend Handler Specification Tests', () => {
     expect(resultBody.match.player1Id).toBe('ai-okano');
 
     // 試合終了後のスコアボードがDynamoDBへ記録されていること
-    expect(dynamoSendMock).toHaveBeenCalledTimes(1);
-    const putCommand = dynamoSendMock.mock.calls[0][0];
-    expect(putCommand.input.TableName).toBe('test-matches-table');
-    expect(putCommand.input.Item.matchId).toBe(body.matchId);
+    const matchPutCommand = dynamoSendMock.mock.calls
+      .map(([command]) => command)
+      .find((command) => command.input.TableName === 'test-matches-table');
+    expect(matchPutCommand).toBeDefined();
+    expect(matchPutCommand.input.Item.matchId).toBe(body.matchId);
+
+    // 勝者・敗者のレーティングもDynamoDBへ保存されていること
+    const playerPutCommands = dynamoSendMock.mock.calls
+      .map(([command]) => command)
+      .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
+    expect(playerPutCommands.length).toBe(2);
+    const savedPlayerIds = playerPutCommands.map((command) => command.input.Item.playerId).sort();
+    expect(savedPlayerIds).toEqual(['ai-junior', 'ai-okano']);
   });
 
   it('should get matches list properly', async () => {
@@ -231,6 +283,152 @@ describe('Backend Handler Specification Tests', () => {
     expect(resError.statusCode).toBe(500);
   });
 
+  it('does not leak rating mutations between independent saveMatch calls when DynamoDB reads always miss (fallback must return copies of seed data, not shared references)', async () => {
+    // GetCommandを常にミスさせ、毎回シードデータへのフォールバックを強制する
+    dynamoSendMock.mockImplementation(async (command) => {
+      if (command.constructor.name === 'GetCommand') return {};
+      return defaultDynamoSend(command);
+    });
+
+    const playHumanVsOkano = async (matchId) => {
+      const res = await saveMatch({
+        body: JSON.stringify({
+          matchId,
+          player1Id: 'human',
+          player2Id: 'ai-okano',
+          winnerId: 'ai-okano',
+        }),
+      });
+      return JSON.parse(res.body).match.ratingDiff;
+    };
+
+    const ratingDiff1 = await playHumanVsOkano('regression-match-1');
+    const ratingDiff2 = await playHumanVsOkano('regression-match-2');
+
+    // フォールバックが共有オブジェクトへの参照を返していると、1回目の呼び出しで
+    // ai-okanoのratingが書き換わったままになり、2回目のratingDiffが変わってしまう。
+    expect(ratingDiff2).toBe(ratingDiff1);
+  });
+
+  it('should reject saveMatch when winnerId does not match either player (rating manipulation guard)', async () => {
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-forged-winner',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-nash', // 対戦していない第三者のplayerIdを勝者として詐称
+        scores: { p1: 10, p2: 5 },
+        shocks: { p1: 0, p2: 1 },
+        logs: [],
+      }),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(dynamoSendMock).not.toHaveBeenCalled();
+  });
+
+  it('should reject saveMatch with a malformed scores/shocks shape', async () => {
+    const resBadScores = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-bad-scores',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        scores: { p1: -1, p2: 5 },
+      }),
+    });
+    expect(resBadScores.statusCode).toBe(400);
+
+    const resBadShocks = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-bad-shocks',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        shocks: { p1: 'zero', p2: 0 },
+      }),
+    });
+    expect(resBadShocks.statusCode).toBe(400);
+  });
+
+  it('should reject saveMatch logs with an out-of-range or duplicate chosenChair', async () => {
+    const resOutOfRange = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-bad-chair',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        logs: [{ turn: 1, chosenChair: 999 }],
+      }),
+    });
+    expect(resOutOfRange.statusCode).toBe(400);
+
+    const resDuplicate = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-duplicate-chair',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        logs: [{ turn: 1, chosenChair: 3 }, { turn: 2, chosenChair: 3 }],
+      }),
+    });
+    expect(resDuplicate.statusCode).toBe(400);
+  });
+
+  it('should persist the AI rating update to DynamoDB when saveMatch succeeds', async () => {
+    await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-rating-persisted',
+        player1Id: 'human',
+        player2Id: 'ai-okano',
+        winnerId: 'ai-okano',
+        scores: { p1: 5, p2: 40 },
+        shocks: { p1: 2, p2: 0 },
+        logs: [],
+      }),
+    });
+
+    const playerPutCommand = dynamoSendMock.mock.calls
+      .map(([command]) => command)
+      .find((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
+    expect(playerPutCommand).toBeDefined();
+    expect(playerPutCommand.input.Item.playerId).toBe('ai-okano');
+  });
+
+  it('should read players/matches from DynamoDB when data is already present', async () => {
+    const dbPlayer = {
+      playerId: 'ai-okano',
+      name: 'DB版岡野',
+      type: 'personality',
+      rating: 9999,
+      winCount: 1,
+      matchCount: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    const dbMatch = {
+      matchId: 'db-match-1',
+      player1Id: 'ai-okano',
+      player2Id: 'ai-junior',
+      winnerId: 'ai-okano',
+      createdAt: new Date().toISOString(),
+    };
+
+    dynamoTables['test-players-table'].set(dbPlayer.playerId, dbPlayer);
+    dynamoTables['test-matches-table'].set(dbMatch.matchId, dbMatch);
+
+    const playersRes = await getPlayers({});
+    expect(JSON.parse(playersRes.body).players).toEqual([dbPlayer]);
+
+    const leaderboardRes = await getLeaderboard({});
+    expect(JSON.parse(leaderboardRes.body).leaderboard).toEqual([dbPlayer]);
+
+    const matchesRes = await getMatches({});
+    expect(JSON.parse(matchesRes.body).matches).toEqual([dbMatch]);
+
+    const matchResultRes = await getMatchResult({ queryStringParameters: { matchId: 'db-match-1' } });
+    expect(JSON.parse(matchResultRes.body).match).toEqual(dbMatch);
+  });
+
   it('should record the match to DynamoDB even when optional fields (scores/shocks/logs) are omitted', async () => {
     const res = await saveMatch({
       body: JSON.stringify({
@@ -247,7 +445,13 @@ describe('Backend Handler Specification Tests', () => {
   });
 
   it('should still return the match result even if recording to DynamoDB fails', async () => {
-    dynamoSendMock.mockRejectedValueOnce(new Error('DynamoDB unavailable'));
+    // player取得/保存が何回発生しても、試合記録(matches table)への書き込みだけが失敗するようにする
+    dynamoSendMock.mockImplementation(async (command) => {
+      if (command.input.TableName === 'test-matches-table' && command.constructor.name === 'PutCommand') {
+        throw new Error('DynamoDB unavailable');
+      }
+      return defaultDynamoSend(command);
+    });
 
     const res = await saveMatch({
       body: JSON.stringify({

@@ -9,14 +9,19 @@ provider:
   environment:
     GEMINI_API: ${env:GEMINI_API, ''}
     MATCHES_TABLE: ${self:service}-matches-${opt:stage, 'dev'}
+    PLAYERS_TABLE: ${self:service}-players-${opt:stage, 'dev'}
   iam:
     role:
       statements:
         - Effect: Allow
           Action:
+            - dynamodb:GetItem
             - dynamodb:PutItem
+            - dynamodb:Query
+            - dynamodb:Scan
           Resource:
             - !GetAtt MatchesTable.Arn
+            - !GetAtt PlayersTable.Arn
 
 functions:
   getPlayers:
@@ -93,4 +98,15 @@ resources:
             AttributeType: S
         KeySchema:
           - AttributeName: matchId
+            KeyType: HASH
+    PlayersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.PLAYERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: playerId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: playerId
             KeyType: HASH
