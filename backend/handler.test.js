@@ -194,16 +194,33 @@ describe('Backend Handler Specification Tests', () => {
     });
     expect(resOkanoChooseEmpty.statusCode).toBe(200);
 
-    const resEmptySet = await getAiMove({
-      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'set', remainingChairs: [] })
-    });
-    expect(resEmptySet.statusCode).toBe(200);
-
     const resMissing = await getAiMove({});
     expect(resMissing.statusCode).toBe(400);
 
     const resError = await getAiMove({ body: '{invalid-json}' });
     expect(resError.statusCode).toBe(500);
+  });
+
+  it('should reject getAiMove with an invalid remainingChairs/role (regression test for NaN/crash on empty array)', async () => {
+    const resEmptyChairs = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: [] })
+    });
+    expect(resEmptyChairs.statusCode).toBe(400);
+
+    const resOutOfRangeChair = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'set', remainingChairs: [1, 999] })
+    });
+    expect(resOutOfRangeChair.statusCode).toBe(400);
+
+    const resNonIntegerChair = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'set', remainingChairs: [1.5] })
+    });
+    expect(resNonIntegerChair.statusCode).toBe(400);
+
+    const resInvalidRole = await getAiMove({
+      body: JSON.stringify({ aiPlayerId: 'ai-okano', role: 'stand', remainingChairs: [1, 2] })
+    });
+    expect(resInvalidRole.statusCode).toBe(400);
   });
 
   it('should handle startMatch error', async () => {
