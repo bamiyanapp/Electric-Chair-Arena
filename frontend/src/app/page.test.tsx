@@ -377,6 +377,62 @@ describe('Home Component', () => {
     });
   });
 
+  it('ignores a stale turn resolution that completes while away from the game, instead of silently advancing the turn in the background', async () => {
+    // 1500msのsleepを意図的に解決させず、後から手動で解決できるようにする
+    let resolveStaleSleep: (() => void) | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (global as any).setTimeout = (cb: any, ms?: number, ...args: any[]) => {
+      if (ms === 1500) {
+        resolveStaleSleep = () => cb(...args);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return {} as any;
+      }
+      return originalSetTimeout(cb, ms, ...args);
+    };
+
+    render(<HomeContent />);
+
+    // ターン1を開始し、1500msのsleep(AI思考中)で一時停止させる
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(resolveStaleSleep).not.toBeNull();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText(/AIが座る椅子を選んでいます/)[0]).toBeDefined();
+    });
+
+    // ターン処理が一時停止している間にロビーへ戻る
+    fireEvent.click(screen.getByRole('button', { name: 'ロビーへ戻る' }));
+    await waitFor(() => {
+      expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
+    });
+
+    // ロビーにいる間に、古いターン処理(sleep)が今になって解決する
+    await act(async () => {
+      resolveStaleSleep!();
+      await Promise.resolve();
+    });
+
+    // ゲームに戻っても、離脱前の「AI思考中」の状態のまま止まっているはずで、
+    // 裏で勝手にターンが進んで結果確定ボタンが出現していてはならない
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText(/AIが座る椅子を選んでいます/)[0]).toBeDefined();
+    });
+    expect(screen.queryByText(/最終結果を見る|次のターンへ/)).toBeNull();
+  });
+
   it('shows an error message instead of leaving the commentary placeholder stuck when the commentary fetch fails', async () => {
     const defaultFetch = global.fetch;
     global.fetch = vi.fn((url: string | Request | URL, ...args) => {
@@ -404,6 +460,75 @@ describe('Home Component', () => {
     await waitFor(() => {
       expect(screen.getAllByText('解説の取得に失敗しました。')[0]).toBeDefined();
     });
+  });
+
+  it('does not let a stale commentary response overwrite a newer turn (out-of-order network race)', async () => {
+    const commentaryResolvers: Array<(value: unknown) => void> = [];
+    let aiMoveCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('generate-commentary')) {
+        return new Promise((resolve) => { commentaryResolvers.push(resolve as (value: unknown) => void); }) as Promise<Response>;
+      }
+      if (urlStr.includes('ai-move')) {
+        aiMoveCount++;
+        if (aiMoveCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 1, setChairs: [] }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [3] }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // ターン1: 人間が#1に仕掛ける -> コメンタリー取得(#1)が発行される(まだ応答しない)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    const chairBtns1 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'));
+    fireEvent.click(chairBtns1[0]);
+
+    await waitFor(() => {
+      expect(commentaryResolvers.length).toBe(1);
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // ターン2: AIが仕掛け、人間が#4を選ぶ -> コメンタリー取得(#2)が発行される
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    const chairBtns2 = screen.getAllByRole('button').filter(b => b.textContent?.includes('#4'));
+    fireEvent.click(chairBtns2[0]);
+
+    await waitFor(() => {
+      expect(commentaryResolvers.length).toBe(2);
+    });
+
+    // ターン2の応答を先に返す
+    await act(async () => {
+      commentaryResolvers[1]({ ok: true, json: () => Promise.resolve({ commentary: 'ターン2の実況' }) });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText('ターン2の実況')[0]).toBeDefined();
+    });
+
+    // 遅延していたターン1の応答が後から返ってきても、ターン2の実況を上書きしてはならない
+    await act(async () => {
+      commentaryResolvers[0]({ ok: true, json: () => Promise.resolve({ commentary: 'ターン1の実況(古い)' }) });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText('ターン1の実況(古い)')).toBeNull();
+    expect(screen.getAllByText('ターン2の実況')[0]).toBeDefined();
   });
 
   it('shows an electric design (not the thinking-face emoji) on the chair while setting the trap', async () => {

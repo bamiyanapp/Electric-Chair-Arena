@@ -19,3 +19,4 @@ module.exports.docClient = DynamoDBDocumentClient.from(client, {
   marshallOptions: { removeUndefinedValues: true },
 });
 module.exports.MATCHES_TABLE = process.env.MATCHES_TABLE || 'electric-chair-arena-backend-matches-dev';
+module.exports.PLAYERS_TABLE = process.env.PLAYERS_TABLE || 'electric-chair-arena-backend-players-dev';
