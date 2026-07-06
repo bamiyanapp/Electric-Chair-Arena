@@ -1,5 +1,7 @@
 'use strict';
 
+const { getNumToSet } = require('./rules.js');
+
 /**
  * Fictitious Play によるナッシュ均衡計算モジュール
  *
@@ -120,7 +122,7 @@ function hasConverged(oldProb, newProb, threshold = 0.001) {
  * @returns {{ setChairs?: number[], chosenChair?: number, reasoning: string }}
  */
 function getNashMove(playerId, role, remainingChairs) {
-  const numToSet = Math.min(3, Math.max(1, Math.floor(remainingChairs.length / 3)));
+  const numToSet = getNumToSet(remainingChairs.length);
   const { setProb, chooseProb, gameValue } = fictitiousPlay(remainingChairs, numToSet);
 
   if (role === 'set') {

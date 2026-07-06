@@ -15,7 +15,7 @@ vi.mock('@/constants/rules', () => ({
     TOTAL_CHAIRS: 5,
     WINNING_SCORE: 10,
     MAX_SHOCKS: 2,
-    MIN_CHAIRS_TO_END: 0,
+    MIN_CHAIRS_TO_END: 1,
   }
 }));
 
@@ -697,6 +697,119 @@ describe('Home Component', () => {
     });
   });
 
+  it('reaches a genuine DRAW in GAME mode via chair exhaustion with tied scores and shocks', async () => {
+    let aiMoveCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        aiMoveCount++;
+        // Turn1(choose): AIは5番を選び安全。Turn2(set): AIは1番に仕掛ける(人間は3番へ)。
+        // Turn3(choose): AIは2番を選び安全。Turn4(set): AIは1番に仕掛ける(人間は4番へ)。
+        // p2 = 5+2 = 7、p1 = 3+4 = 7 で得点・感電数ともに同点のまま椅子が尽きる。
+        if (aiMoveCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 5, setChairs: [] }) } as Response);
+        if (aiMoveCount === 2) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [1] }) } as Response);
+        if (aiMoveCount === 3) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 2, setChairs: [] }) } as Response);
+        if (aiMoveCount === 4) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [1] }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn1: 人間が1番に仕掛け、AIが5番を選ぶ(安全)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn2: AIが仕掛け、人間は3番を選ぶ(安全)
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn3: 人間が1番に仕掛け、AIが2番を選ぶ(安全)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn4: AIが仕掛け、人間は4番を選ぶ(安全) -> 残り椅子1つで試合終了、同点のためDRAW
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#4'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('DRAW')[0]).toBeDefined();
+      expect(screen.getAllByText('引き分け')[0]).toBeDefined();
+    });
+  });
+
+  it('recovers to an operable IDLE state instead of crashing when the AI response is malformed', async () => {
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        // setChairsが欠落した不正なレスポンス。AIが仕掛ける番でaiSetChairs.includes(...)が
+        // 例外を投げ、handleGameChairClickのcatchブロックに到達することを確認する。
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0 }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn1: 人間が仕掛ける番を1回消化し、Turn2でAIが仕掛ける番(不正レスポンス)に進める
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn2: AIが仕掛け、人間が選ぶと不正なレスポンスにより例外が発生する
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+
+    // クラッシュせず、gameStepがIDLEに戻ってターン開始プロンプトが再表示され、
+    // プレイヤーが操作を継続できる状態に復帰していること(catchブロックのリカバリを検証)。
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください|安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    const nextChairBtn = screen.getAllByRole('button').filter(b => b.textContent?.includes('#'));
+    expect(nextChairBtn.some(b => !b.hasAttribute('disabled'))).toBe(true);
+  });
+
   it('renders Home wrapper component', () => {
     render(<Home />);
     expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
@@ -965,5 +1078,95 @@ describe('Home Component', () => {
     
     // Verify we're still in PVP_GAME view (not RESULT view)
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('view=PVP_GAME'), { scroll: false });
+  });
+
+  it('reaches a genuine DRAW in PVP mode via chair exhaustion with tied scores and shocks', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人対人/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1が電流を仕掛ける番です。プレイヤー2は画面を見ないでください。')[0]).toBeDefined();
+    });
+
+    // Turn1(P1が仕掛け,P2が選ぶ): P1は1番に仕掛け、P2は5番を選ぶ(安全) -> p2 += 5
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#5'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn2(P2が仕掛け,P1が選ぶ): P2は1番に仕掛け、P1は3番を選ぶ(安全) -> p1 += 3
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2が電流を仕掛ける番です。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn3(P1が仕掛け,P2が選ぶ): P1は1番に仕掛け、P2は2番を選ぶ(安全) -> p2 += 2 (合計7)
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1が電流を仕掛ける番です。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn4(P2が仕掛け,P1が選ぶ): P2は1番に仕掛け、P1は4番を選ぶ(安全) -> p1 += 4 (合計7)
+    // 残り椅子が1つになり試合終了、得点・感電数ともに同点のためDRAW
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2が電流を仕掛ける番です。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー1の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#4'))[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('DRAW')[0]).toBeDefined();
+      expect(screen.getAllByText('引き分け')[0]).toBeDefined();
+    });
   });
 });

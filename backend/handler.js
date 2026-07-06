@@ -1,11 +1,32 @@
 'use strict';
 
-const { GAME_RULES } = require('./rules.js');
+const { GAME_RULES, getNumToSet } = require('./rules.js');
 const { GoogleGenAI } = require('@google/genai');
 const { getNashMove } = require('./nash.js');
 const { PutCommand, GetCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
 const { initialPlayers, initialMatches } = require('./seedData.js');
+
+const ELO_K_FACTOR = 32;
+
+// ELOレーティングの変動量を計算する。resultは対戦結果(1=勝ち, 0.5=分け, 0=負け)。
+// 戻り値はplayerRating側の増減量(相手はこの値をマイナスした分だけ増減させる)。
+function computeEloDiff(playerRating, opponentRating, result) {
+  const expected = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+  return Math.round(ELO_K_FACTOR * (result - expected));
+}
+
+// エラー発生時の共通レスポンスを組み立てる。内部のエラーメッセージ/スタックは
+// クライアントに返さず、相関用のrequestIdとともにサーバー側ログにのみ出力する。
+function errorResponse(statusCode, clientMessage, logContext, error) {
+  const requestId = `${logContext}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  console.error(`[${requestId}] ${logContext} failed:`, error);
+  return {
+    statusCode,
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: JSON.stringify({ error: clientMessage, requestId }),
+  };
+}
 
 // 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
 async function recordMatchToDynamo(match) {
@@ -88,7 +109,6 @@ module.exports.getPlayers = async () => {
     statusCode: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
       players,
@@ -103,7 +123,6 @@ module.exports.getLeaderboard = async () => {
     statusCode: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
       leaderboard: sortedPlayers,
@@ -119,24 +138,33 @@ module.exports.getAiMove = async (event) => {
     if (!aiPlayerId || !role || !remainingChairs) {
       return {
         statusCode: 400,
-        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+        headers: { 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({ error: 'Missing parameters' }),
       };
     }
 
-    const move = getAiMove(aiPlayerId, role, remainingChairs, opponentShocks || 0);
+    const isValidChairNumber = (c) => Number.isInteger(c) && c >= 1 && c <= GAME_RULES.TOTAL_CHAIRS;
+    const isValidRemainingChairs = Array.isArray(remainingChairs) &&
+      remainingChairs.length > 0 &&
+      remainingChairs.every(isValidChairNumber);
+
+    if (!isValidRemainingChairs || (role !== 'set' && role !== 'choose')) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'remainingChairs must be a non-empty array of valid chair numbers, and role must be "set" or "choose"' }),
+      };
+    }
+
+    const move = computeAiMove(aiPlayerId, role, remainingChairs, opponentShocks || 0);
 
     return {
       statusCode: 200,
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
+      headers: { 'Access-Control-Allow-Origin': '*' },
       body: JSON.stringify(move),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to compute AI move', 'getAiMove', error);
   }
 };
 
@@ -146,7 +174,6 @@ module.exports.getMatches = async () => {
     statusCode: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
       matches,
@@ -163,7 +190,6 @@ module.exports.getMatchResult = async (event) => {
       statusCode: 400,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
       },
       body: JSON.stringify({ error: 'matchId is required' }),
     };
@@ -176,7 +202,6 @@ module.exports.getMatchResult = async (event) => {
       statusCode: 404,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
       },
       body: JSON.stringify({ error: 'Match not found' }),
     };
@@ -186,7 +211,6 @@ module.exports.getMatchResult = async (event) => {
     statusCode: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Credentials': true,
     },
     body: JSON.stringify({
       match,
@@ -195,7 +219,7 @@ module.exports.getMatchResult = async (event) => {
 };
 
 // AIの行動と思考
-function getAiMove(playerId, role, remainingChairs) {
+function computeAiMove(playerId, role, remainingChairs) {
   // ナッシュ均衡AIは共通ロジックを使用
   if (playerId === 'ai-nash') {
     return getNashMove(playerId, role, remainingChairs);
@@ -203,7 +227,7 @@ function getAiMove(playerId, role, remainingChairs) {
 
   if (role === 'set') {
     // 親（設置）：残りの椅子の1/3程度に電流をセット
-    const numToSet = Math.min(3, Math.max(1, Math.floor(remainingChairs.length / 3)));
+    const numToSet = getNumToSet(remainingChairs.length);
     const shuffled = [...remainingChairs].sort(() => 0.5 - Math.random());
     
     let setChairs = [];
@@ -303,7 +327,6 @@ module.exports.startMatch = async (event) => {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'player1Id and player2Id are required' }),
       };
@@ -316,7 +339,6 @@ module.exports.startMatch = async (event) => {
         statusCode: 404,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'One or both players not found' }),
       };
@@ -343,9 +365,9 @@ module.exports.startMatch = async (event) => {
       const chooser = isP1Setter ? p2 : p1;
 
       // 親が電流を仕掛ける
-      const { setChairs, reasoning: setReasoning } = getAiMove(setter.playerId, 'set', remainingChairs);
+      const { setChairs, reasoning: setReasoning } = computeAiMove(setter.playerId, 'set', remainingChairs);
       // 子が椅子を選択する
-      const { chosenChair, reasoning: chooseReasoning } = getAiMove(chooser.playerId, 'choose', remainingChairs);
+      const { chosenChair, reasoning: chooseReasoning } = computeAiMove(chooser.playerId, 'choose', remainingChairs);
 
       const isShocked = setChairs.includes(chosenChair);
       let scoreGained = 0;
@@ -408,15 +430,13 @@ module.exports.startMatch = async (event) => {
 
     let winner = null;
     let ratingDiff = 0;
-    const kFactor = 32;
 
     if (winnerId !== 'draw') {
       winner = winnerId === p1.playerId ? p1 : p2;
       const loser = winnerId === p1.playerId ? p2 : p1;
 
       // ELOレーティング更新
-      const expectedWinner = 1 / (1 + Math.pow(10, (loser.rating - winner.rating) / 400));
-      ratingDiff = Math.round(kFactor * (1 - expectedWinner));
+      ratingDiff = computeEloDiff(winner.rating, loser.rating, 1);
 
       winner.rating += ratingDiff;
       loser.rating -= ratingDiff;
@@ -431,8 +451,7 @@ module.exports.startMatch = async (event) => {
       await Promise.all([savePlayer(winner), savePlayer(loser)]);
     } else {
       // 引き分け
-      const expectedP1 = 1 / (1 + Math.pow(10, (p2.rating - p1.rating) / 400));
-      const p1Diff = Math.round(kFactor * (0.5 - expectedP1));
+      const p1Diff = computeEloDiff(p1.rating, p2.rating, 0.5);
 
       p1.rating += p1Diff;
       p2.rating -= p1Diff;
@@ -463,7 +482,6 @@ module.exports.startMatch = async (event) => {
       statusCode: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
       },
       body: JSON.stringify({
         matchId,
@@ -477,26 +495,61 @@ module.exports.startMatch = async (event) => {
       }),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
-      },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to start match', 'startMatch', error);
   }
 };
 
+const COMMENTARY_MAX_BODY_LENGTH = 10 * 1024; // これを超えるリクエストボディは即座に拒否する
+const COMMENTARY_TIMEOUT_MS = 5000; // Gemini APIの応答が遅い場合はモック解説にフォールバックする
+const COMMENTARY_CACHE_MAX_SIZE = 200;
+const commentaryCache = new Map();
+
+// gameState/actionから想定するフィールドのみを安全な型で取り出す。
+// 未検証の値をそのままプロンプトへ埋め込まない(プロンプトインジェクション対策)。
+function sanitizeGameStateForCommentary(gameState) {
+  if (!gameState || typeof gameState !== 'object') return {};
+  const toScoreLike = (value) => ({
+    p1: Number.isFinite(value?.p1) ? value.p1 : 0,
+    p2: Number.isFinite(value?.p2) ? value.p2 : 0,
+  });
+  const remainingChairs = Array.isArray(gameState.remainingChairs)
+    ? gameState.remainingChairs.filter((c) => Number.isInteger(c)).slice(0, GAME_RULES.TOTAL_CHAIRS)
+    : [];
+  return {
+    scores: toScoreLike(gameState.scores),
+    shocks: toScoreLike(gameState.shocks),
+    remainingChairs,
+    winner: typeof gameState.winner === 'string' ? gameState.winner.slice(0, 50) : '',
+  };
+}
+
+function sanitizeActionForCommentary(action) {
+  if (!action || typeof action !== 'object') return {};
+  return {
+    isHumanSetter: action.isHumanSetter === true,
+    chosenChair: Number.isInteger(action.chosenChair) ? action.chosenChair : null,
+    isShocked: action.isShocked === true,
+  };
+}
+
 module.exports.generateCommentary = async (event) => {
   try {
+    if (event.body && event.body.length > COMMENTARY_MAX_BODY_LENGTH) {
+      return {
+        statusCode: 413,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Request body too large' }),
+      };
+    }
+
     const body = event.body ? JSON.parse(event.body) : {};
-    const { gameState, action } = body;
-    
+    const gameState = sanitizeGameStateForCommentary(body.gameState);
+    const action = sanitizeActionForCommentary(body.action);
+
     const generateMockCommentary = () => {
-      if (action && action.isShocked) {
+      if (action.isShocked) {
         return '「おおっと！ここで痛恨のビリビリだあああ！」';
-      } else if (action && action.chosenChair) {
+      } else if (action.chosenChair) {
         return `「${action.chosenChair}番の椅子で勝負に出た！見事セーフ！」`;
       }
       return '「熱い戦いが続いています！」';
@@ -504,34 +557,57 @@ module.exports.generateCommentary = async (event) => {
 
     if (!process.env.GEMINI_API) {
       console.warn('GEMINI_API is not configured, returning mock commentary.');
-      return { 
-        statusCode: 200, 
-        headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Credentials': true },
-        body: JSON.stringify({ commentary: generateMockCommentary() }) 
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ commentary: generateMockCommentary() })
+      };
+    }
+
+    const cacheKey = JSON.stringify({ gameState, action });
+    const cached = commentaryCache.get(cacheKey);
+    if (cached) {
+      // LRU相当: 再利用したエントリを最新として挿入し直す
+      commentaryCache.delete(cacheKey);
+      commentaryCache.set(cacheKey, cached);
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ commentary: cached }),
       };
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
     const prompt = `あなたは「ビリビリ椅子取りゲーム」の実況解説者です。
-現在のゲームの状況: ${JSON.stringify(gameState || {})}
-直前のアクション: ${JSON.stringify(action || {})}
+現在のゲームの状況: ${JSON.stringify(gameState)}
+直前のアクション: ${JSON.stringify(action)}
 この状況を踏まえて、熱く短く（1〜2文程度で）実況解説をしてください。`;
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Gemini API timeout')), COMMENTARY_TIMEOUT_MS);
       });
+      const response = await Promise.race([
+        ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt }),
+        timeout,
+      ]);
       const text = response.text;
+      const commentary = text || generateMockCommentary();
+
+      if (text) {
+        if (commentaryCache.size >= COMMENTARY_CACHE_MAX_SIZE) {
+          commentaryCache.delete(commentaryCache.keys().next().value);
+        }
+        commentaryCache.set(cacheKey, commentary);
+      }
 
       return {
         statusCode: 200,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
-        body: JSON.stringify({ commentary: text || generateMockCommentary() }),
+        body: JSON.stringify({ commentary }),
       };
     } catch (apiError) {
       console.error('Gemini API Error:', apiError);
@@ -539,21 +615,12 @@ module.exports.generateCommentary = async (event) => {
         statusCode: 200,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ commentary: generateMockCommentary() }),
       };
     }
   } catch (error) {
-    console.error('Error generating commentary:', error);
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
-      },
-      body: JSON.stringify({ error: 'Failed to generate commentary' }),
-    };
+    return errorResponse(500, 'Failed to generate commentary', 'generateCommentary', error);
   }
 };
 
@@ -567,7 +634,6 @@ module.exports.saveMatch = async (event) => {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'Missing parameters' }),
       };
@@ -578,7 +644,6 @@ module.exports.saveMatch = async (event) => {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'winnerId must be player1Id, player2Id, or "draw"' }),
       };
@@ -595,7 +660,6 @@ module.exports.saveMatch = async (event) => {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'scores and shocks must be objects with non-negative integer p1/p2 fields' }),
       };
@@ -607,7 +671,6 @@ module.exports.saveMatch = async (event) => {
           statusCode: 400,
           headers: {
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Credentials': true,
           },
           body: JSON.stringify({ error: 'logs must be an array' }),
         };
@@ -624,7 +687,6 @@ module.exports.saveMatch = async (event) => {
             statusCode: 400,
             headers: {
               'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Credentials': true,
             },
             body: JSON.stringify({ error: 'logs contain an invalid or duplicate chosenChair' }),
           };
@@ -647,42 +709,25 @@ module.exports.saveMatch = async (event) => {
         statusCode: 404,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Credentials': true,
         },
         body: JSON.stringify({ error: 'One or both players not found' }),
       };
     }
 
     let ratingDiff = 0;
-    
-    // AIのレーティングを更新 (相手が人間の場合)
-    if (player1Id === 'human' && player2Id !== 'human') {
-      const aiPlayer = p2;
-      const isAiWinner = winnerId === aiPlayer.playerId;
-      const isDraw = winnerId === 'draw';
-      const humanRating = 1500;
-      
-      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
-      const kFactor = 32;
-      const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
-      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
-      
-      aiPlayer.rating += ratingDiff;
-      aiPlayer.matchCount += 1;
-      if (isAiWinner) aiPlayer.winCount += 1;
-      aiPlayer.updatedAt = new Date().toISOString();
-      await savePlayer(aiPlayer);
-    } else if (player2Id === 'human' && player1Id !== 'human') {
-      const aiPlayer = p1;
+
+    // AIのレーティングを更新 (相手が人間の場合。人間側はレーティングを持たないため更新・保存しない)
+    const isPlayer1Human = player1Id === 'human';
+    const isPlayer2Human = player2Id === 'human';
+    if (isPlayer1Human !== isPlayer2Human) {
+      const aiPlayer = isPlayer1Human ? p2 : p1;
       const isAiWinner = winnerId === aiPlayer.playerId;
       const isDraw = winnerId === 'draw';
       const humanRating = 1500;
 
-      const expectedAi = 1 / (1 + Math.pow(10, (humanRating - aiPlayer.rating) / 400));
-      const kFactor = 32;
       const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
-      ratingDiff = Math.round(kFactor * (actualAi - expectedAi));
-      
+      ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
+
       aiPlayer.rating += ratingDiff;
       aiPlayer.matchCount += 1;
       if (isAiWinner) aiPlayer.winCount += 1;
@@ -708,18 +753,10 @@ module.exports.saveMatch = async (event) => {
       statusCode: 200,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
       },
       body: JSON.stringify({ success: true, match: newMatch }),
     };
   } catch (error) {
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Credentials': true,
-      },
-      body: JSON.stringify({ error: error.message }),
-    };
+    return errorResponse(500, 'Failed to save match', 'saveMatch', error);
   }
 };
