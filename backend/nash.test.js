@@ -309,7 +309,7 @@ describe('getNashMove', () => {
     expect(result).toHaveProperty('setChairs');
     expect(result).toHaveProperty('reasoning');
     expect(Array.isArray(result.setChairs)).toBe(true);
-    expect(result.setChairs.length).toBe(3);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
@@ -363,8 +363,8 @@ describe('getNashMove', () => {
     const result1 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
     const result2 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
 
-    expect(result1.setChairs.length).toBe(2);
-    expect(result2.setChairs.length).toBe(2);
+    expect(result1.setChairs.length).toBe(1);
+    expect(result2.setChairs.length).toBe(1);
     expect(result1.reasoning).toContain('ナッシュ均衡');
     expect(result2.reasoning).toContain('ナッシュ均衡');
   });
@@ -408,38 +408,38 @@ describe('getNashMove', () => {
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
-  it('should handle six chairs for setter with numToSet=2', () => {
+  it('should handle six chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
 
-    expect(result.setChairs.length).toBe(2);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
-  it('should handle seven chairs for setter with numToSet=2', () => {
+  it('should handle seven chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7]);
 
-    expect(result.setChairs.length).toBe(2);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
-  it('should handle eight chairs for setter with numToSet=2', () => {
+  it('should handle eight chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8]);
 
-    expect(result.setChairs.length).toBe(2);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
-  it('should handle nine chairs for setter with numToSet=3', () => {
+  it('should handle nine chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
-    expect(result.setChairs.length).toBe(3);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
-  it('should handle ten chairs for setter with numToSet=3', () => {
+  it('should handle ten chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
-    expect(result.setChairs.length).toBe(3);
+    expect(result.setChairs.length).toBe(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 

@@ -295,6 +295,41 @@ describe('Backend Handler Specification Tests', () => {
     expect(resDraw.statusCode).toBe(200);
   });
 
+  it('should accept a local PVP match (p1 vs p2) without 404ing and without updating any player rating', async () => {
+    const putCallsBefore = dynamoSendMock.mock.calls.filter(
+      ([command]) => command.constructor.name === 'PutCommand' && command.input.TableName === 'test-players-table'
+    ).length;
+
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-pvp-match-id',
+        player1Id: 'p1',
+        player2Id: 'p2',
+        winnerId: 'p1',
+        scores: { p1: 20, p2: 10 },
+        shocks: { p1: 0, p2: 1 },
+        logs: []
+      })
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.success).toBe(true);
+    expect(body.match.ratingDiff).toBe(0);
+
+    // 試合記録はDynamoDBへ保存される
+    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(putCommand.input.TableName).toBe('test-matches-table');
+    expect(putCommand.input.Item.matchId).toBe('test-pvp-match-id');
+
+    // p1/p2はどちらもレーティングを持たない疑似プレイヤーのため、
+    // players-tableへの書き込みは一切発生しない
+    const putCallsAfter = dynamoSendMock.mock.calls.filter(
+      ([command]) => command.constructor.name === 'PutCommand' && command.input.TableName === 'test-players-table'
+    ).length;
+    expect(putCallsAfter).toBe(putCallsBefore);
+  });
+
   it('should handle saveMatch error', async () => {
     const resError = await saveMatch({ body: '{invalid-json}' });
     expect(resError.statusCode).toBe(500);

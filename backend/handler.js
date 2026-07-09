@@ -9,6 +9,22 @@ const { initialPlayers, initialMatches } = require('./seedData.js');
 
 const ELO_K_FACTOR = 32;
 
+// レーティングを持たない疑似プレイヤーID。'human'は人間対AIモード、
+// 'p1'/'p2'はローカルPVPモードの各プレイヤーを表す。
+const HUMAN_PSEUDO_PLAYER_NAMES = {
+  human: 'あなた (人間)',
+  p1: 'プレイヤー1',
+  p2: 'プレイヤー2',
+};
+
+function isHumanPseudoPlayerId(playerId) {
+  return Object.prototype.hasOwnProperty.call(HUMAN_PSEUDO_PLAYER_NAMES, playerId);
+}
+
+function makeHumanPseudoPlayer(playerId) {
+  return { playerId, name: HUMAN_PSEUDO_PLAYER_NAMES[playerId], rating: 1500, winCount: 0, matchCount: 0 };
+}
+
 // ELOレーティングの変動量を計算する。resultは対戦結果(1=勝ち, 0.5=分け, 0=負け)。
 // 戻り値はplayerRating側の増減量(相手はこの値をマイナスした分だけ増減させる)。
 function computeEloDiff(playerRating, opponentRating, result) {
@@ -696,12 +712,8 @@ module.exports.saveMatch = async (event) => {
     }
 
     const [p1, p2] = await Promise.all([
-      player1Id === 'human'
-        ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
-        : getPlayerById(player1Id),
-      player2Id === 'human'
-        ? { playerId: 'human', name: 'あなた (人間)', rating: 1500, winCount: 0, matchCount: 0 }
-        : getPlayerById(player2Id),
+      isHumanPseudoPlayerId(player1Id) ? makeHumanPseudoPlayer(player1Id) : getPlayerById(player1Id),
+      isHumanPseudoPlayerId(player2Id) ? makeHumanPseudoPlayer(player2Id) : getPlayerById(player2Id),
     ]);
 
     if (!p1 || !p2) {
@@ -716,9 +728,11 @@ module.exports.saveMatch = async (event) => {
 
     let ratingDiff = 0;
 
-    // AIのレーティングを更新 (相手が人間の場合。人間側はレーティングを持たないため更新・保存しない)
-    const isPlayer1Human = player1Id === 'human';
-    const isPlayer2Human = player2Id === 'human';
+    // AIのレーティングを更新 (相手が人間/ローカルPVPの場合。疑似プレイヤー側は
+    // レーティングを持たないため更新・保存しない。PVP同士(p1 vs p2)は
+    // 両者とも疑似プレイヤーのため更新自体が発生しない)
+    const isPlayer1Human = isHumanPseudoPlayerId(player1Id);
+    const isPlayer2Human = isHumanPseudoPlayerId(player2Id);
     if (isPlayer1Human !== isPlayer2Human) {
       const aiPlayer = isPlayer1Human ? p2 : p1;
       const isAiWinner = winnerId === aiPlayer.playerId;

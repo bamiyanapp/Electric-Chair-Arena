@@ -58,6 +58,8 @@ type MatchRecord = {
   ratingDiff: number;
   createdAt: string;
   logs: GameLog[];
+  scores?: { p1: number; p2: number };
+  shocks?: { p1: number; p2: number };
 };
 
 function isValidGameLog(value: unknown): value is GameLog {
@@ -637,6 +639,8 @@ export function HomeContent() {
       ratingDiff: matchData.ratingDiff,
       createdAt: new Date().toISOString(),
       logs: matchData.logs,
+      scores: matchData.scores,
+      shocks: matchData.shocks,
     };
 
     // 常にLocalStorageにも保存する
@@ -651,35 +655,81 @@ export function HomeContent() {
 
     try {
       const apiUrl = getApiUrl();
-      await fetch(`${apiUrl}/save-match`, {
+      const res = await fetch(`${apiUrl}/save-match`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(matchRecord)
       });
+      if (!res.ok) {
+        console.warn(`Failed to save match result to API: ${res.status}`);
+      }
     } catch (e) {
       console.warn('Failed to save match result to API', e);
     }
   };
 
-  // 初回データロード（モック）
-  useEffect(() => {
-    // 実際にはバックエンドの /get-players や /get-leaderboard を叩く
-    const mockPlayers: Player[] = [
-      { playerId: 'ai-okano', name: '岡野陽一風AI', type: 'personality', rating: 1550, winCount: 42, matchCount: 80 },
-      { playerId: 'ai-koyabu', name: '小籔千豊風AI', type: 'personality', rating: 1600, winCount: 55, matchCount: 90 },
-      { playerId: 'ai-junior', name: '千原ジュニア風AI', type: 'personality', rating: 1620, winCount: 61, matchCount: 100 },
-      { playerId: 'ai-random', name: 'ランダムAI', type: 'random', rating: 1400, winCount: 20, matchCount: 70 },
-      { playerId: 'ai-rule-based', name: '期待値計算AI', type: 'rule_based', rating: 1520, winCount: 35, matchCount: 75 },
-      { playerId: 'ai-nash', name: 'ナッシュ均衡AI', type: 'nash', rating: 1650, winCount: 70, matchCount: 95 },
-    ];
-    setPlayers(mockPlayers);
-    setLeaderboard([...mockPlayers].sort((a, b) => b.rating - a.rating));
-    
-    if (mockPlayers.length >= 2) {
-      setPlayer2Id(mockPlayers[1].playerId);
+  // プレイヤー一覧のモック（バックエンド未到達時のフォールバック用）
+  const getMockPlayers = (): Player[] => [
+    { playerId: 'ai-okano', name: '岡野陽一風AI', type: 'personality', rating: 1550, winCount: 42, matchCount: 80 },
+    { playerId: 'ai-koyabu', name: '小籔千豊風AI', type: 'personality', rating: 1600, winCount: 55, matchCount: 90 },
+    { playerId: 'ai-junior', name: '千原ジュニア風AI', type: 'personality', rating: 1620, winCount: 61, matchCount: 100 },
+    { playerId: 'ai-random', name: 'ランダムAI', type: 'random', rating: 1400, winCount: 20, matchCount: 70 },
+    { playerId: 'ai-rule-based', name: '期待値計算AI', type: 'rule_based', rating: 1520, winCount: 35, matchCount: 75 },
+    { playerId: 'ai-nash', name: 'ナッシュ均衡AI', type: 'nash', rating: 1650, winCount: 70, matchCount: 95 },
+  ];
+
+  const applyFetchedPlayers = (fetchedPlayers: Player[]) => {
+    setPlayers(fetchedPlayers);
+    if (fetchedPlayers.length >= 2) {
+      setPlayer2Id(prev => prev || fetchedPlayers[1].playerId);
     }
+    return fetchedPlayers;
+  };
+
+  const fetchPlayers = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/get-players`);
+      if (res.ok) {
+        const data = await res.json();
+        const fetchedPlayers: Player[] = data.players || [];
+        if (fetchedPlayers.length > 0) {
+          return applyFetchedPlayers(fetchedPlayers);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch players, falling back to mock data', e);
+    }
+
+    return applyFetchedPlayers(getMockPlayers());
+  };
+
+  const fetchLeaderboard = async () => {
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(`${apiUrl}/get-leaderboard`);
+      if (res.ok) {
+        const data = await res.json();
+        const fetchedLeaderboard: Player[] = data.leaderboard || [];
+        if (fetchedLeaderboard.length > 0) {
+          setLeaderboard(fetchedLeaderboard);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch leaderboard, falling back to mock data', e);
+    }
+
+    setLeaderboard([...players].sort((a, b) => b.rating - a.rating));
+  };
+
+  // 初回データロード
+  useEffect(() => {
+    fetchPlayers().then(loadedPlayers => {
+      setLeaderboard([...loadedPlayers].sort((a, b) => b.rating - a.rating));
+    });
   }, []);
 
   const isGameActive = (currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
@@ -750,7 +800,9 @@ export function HomeContent() {
             isHumanSetter: isP1Setter,
             chosenChair: chosen,
             isShocked,
-            remainingChairs: nextRemainingChairs
+            remainingChairs: nextRemainingChairs,
+            scores: newScores,
+            shocks: newShocks
           }
         });
         setPvpStage('SHOW_RESULT');
@@ -881,7 +933,9 @@ export function HomeContent() {
           isHumanSetter,
           chosenChair: isHumanSetter ? aiChosenChair : chair,
           isShocked,
-          remainingChairs: nextRemainingChairs
+          remainingChairs: nextRemainingChairs,
+          scores: newScores,
+          shocks: newShocks
         },
         aiSetChairs: aiSetChairsForReveal
       });
@@ -922,7 +976,7 @@ export function HomeContent() {
                 <h3 className="text-xl font-bold mb-2">人対人 (ローカル)</h3>
                 <p className="text-sm opacity-90">1台のデバイスで交互に操作して2人対戦を行います</p>
               </button>
-              <button onClick={() => setCurrentView('LEADERBOARD')} className="p-6 bg-purple-600 text-white rounded-xl shadow hover:bg-purple-700 transition">
+              <button onClick={() => { fetchLeaderboard(); setCurrentView('LEADERBOARD'); }} className="p-6 bg-purple-600 text-white rounded-xl shadow hover:bg-purple-700 transition">
                 <h3 className="text-xl font-bold mb-2">ランキング</h3>
                 <p className="text-sm opacity-90">AIプレイヤーのレーティングランキング</p>
               </button>
