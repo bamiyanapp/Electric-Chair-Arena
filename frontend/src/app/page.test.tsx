@@ -188,6 +188,75 @@ describe('Home Component', () => {
     fireEvent.click(backBtn);
   });
 
+  it('loads players from /get-players on initial load instead of the hardcoded mock data', async () => {
+    const defaultFetch = global.fetch;
+    global.fetch = vi.fn((url: string | Request | URL, ...args) => {
+      if (url.toString().includes('get-players')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            players: [
+              { playerId: 'ai-from-backend-1', name: 'バックエンドAI1号', type: 'rule_based', rating: 1234, winCount: 1, matchCount: 2 },
+              { playerId: 'ai-from-backend-2', name: 'バックエンドAI2号', type: 'random', rating: 1111, winCount: 0, matchCount: 1 },
+            ],
+          }),
+        } as Response);
+      }
+      return defaultFetch(url, ...args);
+    });
+
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('バックエンドAI1号')).toBeDefined();
+    });
+    expect(screen.queryByText('岡野陽一風AI')).toBeNull();
+  });
+
+  it('falls back to the mock player list when /get-players fails', async () => {
+    const defaultFetch = global.fetch;
+    global.fetch = vi.fn((url: string | Request | URL, ...args) => {
+      if (url.toString().includes('get-players')) {
+        return Promise.resolve({ ok: false, json: () => Promise.resolve({}) } as Response);
+      }
+      return defaultFetch(url, ...args);
+    });
+
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('岡野陽一風AI')).toBeDefined();
+    });
+  });
+
+  it('loads the leaderboard from /get-leaderboard when navigating to LEADERBOARD', async () => {
+    const defaultFetch = global.fetch;
+    global.fetch = vi.fn((url: string | Request | URL, ...args) => {
+      if (url.toString().includes('get-leaderboard')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            leaderboard: [
+              { playerId: 'ai-top', name: 'トップAI', type: 'nash', rating: 9999, winCount: 10, matchCount: 10 },
+            ],
+          }),
+        } as Response);
+      }
+      return defaultFetch(url, ...args);
+    });
+
+    render(<HomeContent />);
+    await waitFor(() => {
+      expect(screen.getAllByText('岡野陽一風AI').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /ランキング/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText('トップAI')).toBeDefined();
+    });
+  });
+
   it('still syncs with external URL changes after navigating to the already-current view (e.g. clicking the header icon while on LOBBY)', async () => {
     const { rerender } = render(<HomeContent />);
 
