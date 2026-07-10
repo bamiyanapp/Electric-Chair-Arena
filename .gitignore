@@ -35,3 +35,6 @@ backend/karuta-phrases-backup.json
 
 # Log files
 *.log
+
+# commit skill が下書きに使う一時ファイル
+commit_msg*.txt
