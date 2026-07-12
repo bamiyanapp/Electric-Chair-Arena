@@ -30,48 +30,56 @@ functions:
       - http:
           path: get-players
           method: get
+          cors: true
   startMatch:
     handler: handler.startMatch
     events:
       - http:
           path: start-match
           method: post
+          cors: true
   getMatches:
     handler: handler.getMatches
     events:
       - http:
           path: get-matches
           method: get
+          cors: true
   getMatchResult:
     handler: handler.getMatchResult
     events:
       - http:
           path: get-match-result
           method: get
+          cors: true
   getLeaderboard:
     handler: handler.getLeaderboard
     events:
       - http:
           path: get-leaderboard
           method: get
+          cors: true
   getAiMove:
     handler: handler.getAiMove
     events:
       - http:
           path: ai-move
           method: post
+          cors: true
   saveMatch:
     handler: handler.saveMatch
     events:
       - http:
           path: save-match
           method: post
+          cors: true
   generateCommentary:
     handler: handler.generateCommentary
     events:
       - http:
           path: generate-commentary
           method: post
+          cors: true
 
 plugins:
   - serverless-offline
