@@ -930,6 +930,10 @@ export function HomeContent() {
     if (hasUnfinishedMatch && !window.confirm('進行中の試合は失われます。ロビーへ戻りますか？')) {
       return;
     }
+    // matchResultを残したままロビーへ戻ると、再度同じモードへ入った際に
+    // isGameActiveが真のままになり、対戦相手選択画面をスキップして
+    // 直前の(決着済みの)試合結果表示にジャンプしてしまう。
+    setMatchResult(null);
     setCurrentView('LOBBY');
   };
 
