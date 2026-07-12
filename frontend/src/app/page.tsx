@@ -84,6 +84,10 @@ type MatchRecord = {
   logs: GameLog[];
   scores?: { p1: number; p2: number };
   shocks?: { p1: number; p2: number };
+  // 新規保存分にのみ付与される明示的なモード。matchIdの文字列prefixに
+  // 頼らずモードを判定するための型付きフィールド。無い場合(旧データ)は
+  // 呼び出し側でmatchIdからの推測にフォールバックする。
+  mode?: 'human' | 'pvp';
 };
 
 function isValidGameLog(value: unknown): value is GameLog {
@@ -111,7 +115,8 @@ function isValidMatchRecord(value: unknown): value is MatchRecord {
     typeof record.ratingDiff === 'number' &&
     typeof record.createdAt === 'string' &&
     Array.isArray(record.logs) &&
-    record.logs.every(isValidGameLog)
+    record.logs.every(isValidGameLog) &&
+    (record.mode === undefined || record.mode === 'human' || record.mode === 'pvp')
   );
 }
 
@@ -699,6 +704,7 @@ export function HomeContent() {
       logs: matchData.logs,
       scores: matchData.scores,
       shocks: matchData.shocks,
+      mode: matchData.mode,
     };
 
     // 常にLocalStorageにも保存する
@@ -1274,9 +1280,10 @@ export function HomeContent() {
               <div className="space-y-8">
                 {matchesList.map(m => {
                   // BaseballScoreboardコンポーネントのPropsに合わせるため、一部データをモックで補完
+                  // mode未保存の旧データのみ、matchIdの文字列prefixから推測する
                   const mockMatchResult: MatchResult = {
                     matchId: m.matchId,
-                    mode: m.matchId.startsWith('match-pvp-') ? 'pvp' : 'human',
+                    mode: m.mode ?? (m.matchId.startsWith('match-pvp-') ? 'pvp' : 'human'),
                     player1: players.find(p => p.playerId === m.player1Id) || { playerId: m.player1Id, name: m.player1Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
                     player2: players.find(p => p.playerId === m.player2Id) || { playerId: m.player2Id, name: m.player2Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
                     winner: m.winnerId,

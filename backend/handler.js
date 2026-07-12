@@ -643,7 +643,7 @@ module.exports.generateCommentary = async (event) => {
 module.exports.saveMatch = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { matchId, player1Id, player2Id, winnerId, scores, shocks, logs } = body;
+    const { matchId, player1Id, player2Id, winnerId, scores, shocks, logs, mode } = body;
 
     if (!matchId || !player1Id || !player2Id || !winnerId) {
       return {
@@ -678,6 +678,16 @@ module.exports.saveMatch = async (event) => {
           'Access-Control-Allow-Origin': '*',
         },
         body: JSON.stringify({ error: 'scores and shocks must be objects with non-negative integer p1/p2 fields' }),
+      };
+    }
+
+    if (mode !== undefined && mode !== 'human' && mode !== 'pvp') {
+      return {
+        statusCode: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
+        body: JSON.stringify({ error: 'mode must be "human" or "pvp"' }),
       };
     }
 
@@ -758,6 +768,7 @@ module.exports.saveMatch = async (event) => {
       scores,
       shocks,
       logs,
+      mode,
       createdAt: new Date().toISOString(),
     };
 
