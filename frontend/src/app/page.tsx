@@ -7,6 +7,10 @@ import { GAME_RULES } from '@/constants/rules';
 const DEFAULT_API_URL = 'http://localhost:3000/dev';
 let hasWarnedMissingApiUrl = false;
 
+// バックエンド未接続時、選択したAIとは無関係な完全ランダムへフォールバックしたことを
+// プレイヤーに明示するためのバナー文言。
+const OFFLINE_FALLBACK_MESSAGE = 'オフラインモード: バックエンドに接続できないため、ランダムAIと対戦しています。';
+
 // NEXT_PUBLIC_API_URLが未設定の場合、開発用のlocalhostへ静かにフォールバック
 // すると本番ビルドでAPI呼び出しが全て失敗する事故に気づきにくいため、
 // 未設定時は一度だけ警告を出す。
@@ -564,18 +568,23 @@ export function HomeContent() {
       }
     } catch (e) {
       console.warn('Failed to fetch commentary', e);
+      // AI手番の取得失敗時と同様、劣化モードであることをエラー文言で主張し続けるのではなく
+      // 実況エリア自体を消して静かに縮退させる(表示の有無で失敗を示す)。
       if (requestId === commentaryRequestIdRef.current) {
-        setCommentary('解説の取得に失敗しました。');
+        setCommentary('');
       }
     }
   };
 
+  // バックエンドに到達できない場合は無戦略の完全ランダムにフォールバックする。
+  // 選択したAIとは無関係な相手と対戦していることを呼び出し元がUIに示せるよう、
+  // isFallbackで区別できるようにする。
   const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
       // 現状はバックエンドと結合していないためモックのままにするか、直接実装する
       const apiUrl = getApiUrl();
-      
+
       const res = await fetch(`${apiUrl}/ai-move`, {
         method: 'POST',
         headers: {
@@ -584,7 +593,7 @@ export function HomeContent() {
         body: JSON.stringify({ aiPlayerId, role, remainingChairs, opponentShocks })
       });
       if (res.ok) {
-        return await res.json();
+        return { ...(await res.json()), isFallback: false };
       }
     } catch (e) {
       console.warn('API call failed, fallback to mock', e);
@@ -593,7 +602,8 @@ export function HomeContent() {
     // APIが呼べない場合はモック実装
     return {
       setChairs: [remainingChairs[Math.floor(Math.random() * remainingChairs.length)]],
-      chosenChair: remainingChairs[Math.floor(Math.random() * remainingChairs.length)]
+      chosenChair: remainingChairs[Math.floor(Math.random() * remainingChairs.length)],
+      isFallback: true
     };
   };
 
@@ -964,6 +974,7 @@ export function HomeContent() {
 
         const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, newShocks.p1);
         if (matchTokenRef.current !== token) return;
+        setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
         aiChosenChair = aiRes.chosenChair;
         const humanSetChairs = [chair];
@@ -999,6 +1010,7 @@ export function HomeContent() {
 
         const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, newShocks.p1);
         if (matchTokenRef.current !== token) return;
+        setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
         const aiSetChairs = aiRes.setChairs;
         const humanChosenChair = chair;
@@ -1451,6 +1463,7 @@ export function HomeContent() {
                     setShockedChair(null);
                     setTempNextState(null);
                     setCommentary('');
+                    setError('');
                     setLoading(false);
                   }}
                   disabled={loading}
@@ -1463,6 +1476,11 @@ export function HomeContent() {
 
             {matchResult && matchResult.mode === 'human' && (
               <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
+                {error && (
+                  <div role="status" aria-live="polite" className="mb-4 text-center text-sm font-bold text-amber-900 bg-amber-100 border border-amber-300 rounded-lg py-2 px-3">
+                    ⚠️ {error}
+                  </div>
+                )}
                 <div className="mb-6">
                   <BaseballScoreboard match={matchResult} />
                 </div>

@@ -525,7 +525,7 @@ describe('Home Component', () => {
     expect(screen.queryByText(/最終結果を見る|次のターンへ/)).toBeNull();
   });
 
-  it('shows an error message instead of leaving the commentary placeholder stuck when the commentary fetch fails', async () => {
+  it('hides the commentary placeholder instead of leaving it stuck when the commentary fetch fails', async () => {
     const defaultFetch = global.fetch;
     global.fetch = vi.fn((url: string | Request | URL, ...args) => {
       if (url.toString().includes('generate-commentary')) {
@@ -549,9 +549,58 @@ describe('Home Component', () => {
     const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
     fireEvent.click(chairBtns[0]);
 
+    // 失敗時にエラー文言を出し続けるのではなく、実況エリア自体を消して
+    // 「🎙️ 実況AIが状況を分析中...」のプレースホルダーが残り続けないことを確認する
     await waitFor(() => {
-      expect(screen.getAllByText('解説の取得に失敗しました。')[0]).toBeDefined();
+      expect(screen.queryByText(/実況AIが状況を分析中/)).toBeNull();
     });
+    expect(screen.queryByText('解説の取得に失敗しました。')).toBeNull();
+  });
+
+  it('shows an offline-mode banner when the AI move API is unreachable and falls back to a random opponent', async () => {
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      if (url.toString().includes('ai-move')) {
+        return Promise.reject(new Error('Network error'));
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/オフラインモード/)[0]).toBeDefined();
+    });
+  });
+
+  it('does not show the offline-mode banner when the AI move API responds normally', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    expect(screen.queryByText(/オフラインモード/)).toBeNull();
   });
 
   it('does not let a stale commentary response overwrite a newer turn (out-of-order network race)', async () => {
