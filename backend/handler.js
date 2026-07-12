@@ -781,6 +781,8 @@ module.exports.saveMatch = async (event) => {
     }
 
     let ratingDiff = 0;
+    // AIの視点での符号付きレーティング変動。PVP等AIが関与しない試合ではnullのまま。
+    let aiRatingDiff = null;
 
     // AIのレーティングを更新 (相手が人間/ローカルPVPの場合。疑似プレイヤー側は
     // レーティングを持たないため更新・保存しない。PVP同士(p1 vs p2)は
@@ -795,6 +797,7 @@ module.exports.saveMatch = async (event) => {
 
       const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
       ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
+      aiRatingDiff = ratingDiff;
 
       await applyPlayerRatingUpdate(aiPlayer, ratingDiff, isAiWinner);
 
@@ -810,6 +813,7 @@ module.exports.saveMatch = async (event) => {
       player2Id,
       winnerId,
       ratingDiff: Math.abs(ratingDiff),
+      aiRatingDiff,
       scores,
       shocks,
       logs,

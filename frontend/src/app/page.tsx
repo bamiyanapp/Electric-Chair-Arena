@@ -559,6 +559,9 @@ export function HomeContent() {
   } | null>(null);
   
   const [commentary, setCommentary] = useState<string>('');
+  // 直近の人間対AI戦で確定したAI側のレーティング変動(結果画面表示用)。
+  // 対戦開始時にリセットし、save-matchのレスポンスが返り次第セットする。
+  const [aiRatingChange, setAiRatingChange] = useState<{ before: number; diff: number } | null>(null);
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -756,10 +759,46 @@ export function HomeContent() {
       });
       if (!res.ok) {
         console.warn(`Failed to save match result to API: ${res.status}`);
+        return;
+      }
+      // 対AI戦の場合、確定したAI側のレーティング変動を結果画面に反映する
+      if (matchData.mode === 'human') {
+        const data = await res.json();
+        const aiRatingDiff = data?.match?.aiRatingDiff;
+        if (typeof aiRatingDiff === 'number') {
+          setAiRatingChange({ before: matchData.player2.rating, diff: aiRatingDiff });
+        }
       }
     } catch (e) {
       console.warn('Failed to save match result to API', e);
     }
+  };
+
+  // 人間対AI戦を開始する。「対戦開始」ボタンと、結果画面の「同じ相手と再戦」の
+  // 両方から呼ばれる共通処理。
+  const startHumanMatch = (opponentId: string) => {
+    setLoading(true);
+    setMatchResult({
+      matchId: `match-human-${crypto.randomUUID()}`,
+      mode: 'human',
+      player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+      player2: players.find(p => p.playerId === opponentId)!,
+      winner: '',
+      ratingDiff: 0,
+      scores: { p1: 0, p2: 0 },
+      shocks: { p1: 0, p2: 0 },
+      logs: []
+    });
+    setGameStep('IDLE');
+    setStatusMessage('');
+    setHighlightedChair(null);
+    setShockedChair(null);
+    setTempNextState(null);
+    setCommentary('');
+    setError('');
+    setAiRatingChange(null);
+    setLoading(false);
+    setCurrentView('GAME');
   };
 
   // プレイヤー一覧のモック（バックエンド未到達時のフォールバック用）
@@ -1266,6 +1305,32 @@ export function HomeContent() {
                 <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p2}</div>
               </div>
             </div>
+
+            {matchResult.mode === 'human' && aiRatingChange && (
+              <div className="text-center mb-8 text-sm text-gray-600">
+                {matchResult.player2.name}のレーティング: {aiRatingChange.before} → {aiRatingChange.before + aiRatingChange.diff}
+                {' '}({aiRatingChange.diff >= 0 ? '+' : ''}{aiRatingChange.diff})
+              </div>
+            )}
+
+            <BaseballScoreboard match={matchResult} />
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+              {matchResult.mode === 'human' && (
+                <button
+                  onClick={() => startHumanMatch(matchResult.player2.playerId)}
+                  className="px-6 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition-colors shadow-sm"
+                >
+                  同じ相手と再戦
+                </button>
+              )}
+              <button
+                onClick={handleLeaveActiveMatch}
+                className="px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-md hover:bg-gray-300 transition-colors"
+              >
+                ロビーへ戻る
+              </button>
+            </div>
           </section>
         )}
 
@@ -1554,28 +1619,7 @@ export function HomeContent() {
             {!isGameActive && (
               <div className="mt-8 flex justify-center">
                 <button
-                  onClick={() => {
-                    setLoading(true);
-                    setMatchResult({
-                      matchId: `match-human-${crypto.randomUUID()}`,
-                      mode: 'human',
-                      player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
-                      player2: players.find(p => p.playerId === player2Id)!,
-                      winner: '',
-                      ratingDiff: 0,
-                      scores: { p1: 0, p2: 0 },
-                      shocks: { p1: 0, p2: 0 },
-                      logs: []
-                    });
-                    setGameStep('IDLE');
-                    setStatusMessage('');
-                    setHighlightedChair(null);
-                    setShockedChair(null);
-                    setTempNextState(null);
-                    setCommentary('');
-                    setError('');
-                    setLoading(false);
-                  }}
+                  onClick={() => startHumanMatch(player2Id)}
                   disabled={loading}
                   className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
                 >
