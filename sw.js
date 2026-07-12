@@ -1,6 +1,6 @@
 /* global self, caches, fetch, console, URL */
 
-const CACHE_NAME = 'electric-chair-arena-v1';
+const CACHE_NAME = 'electric-chair-arena-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,29 @@ self.addEventListener('install', (event) => {
         console.warn('Failed to cache assets during install:', err);
       });
     })
+  );
+  // skipWaitingを呼ばないと、古いService Workerがタブを開いたままの
+  // ユーザー(モバイルでバックグラウンド常駐しているタブや、PWAとして
+  // ホーム画面に追加され滅多に完全終了されないケースを含む)に対して
+  // 新しいService Worker(=新しいfetchハンドラの挙動やバグ修正)へ
+  // いつまでも切り替わらない状態が続いてしまう。
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_NAME)
+            .map((key) => caches.delete(key))
+        )
+      ),
+      // 既に開いているタブの制御も即座に引き継ぎ、次回のfetchから
+      // 新しいService Workerの挙動が有効になるようにする。
+      self.clients.claim(),
+    ])
   );
 });
 
