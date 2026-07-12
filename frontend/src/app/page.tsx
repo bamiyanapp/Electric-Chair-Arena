@@ -1393,6 +1393,10 @@ export function HomeContent() {
                       logs={matchResult.logs}
                       shockedChair={shockedChair}
                       highlightedChair={highlightedChair}
+                      getExtraStatus={(chair) => {
+                        if (pvpStage === 'SHOW_RESULT' && pvpSetChair === chair) return 'AI_TRAP_REVEALED';
+                        return null;
+                      }}
                       isDisabled={(_chair, isAvailable) => !isAvailable || loading || (pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR')}
                       onChairClick={handlePvpChairClick}
                       overlay={

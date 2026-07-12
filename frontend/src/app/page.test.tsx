@@ -838,6 +838,51 @@ describe('Home Component', () => {
     });
   });
 
+  it('reveals the trap chair in PVP mode when the chooser picks safely, mirroring the human-vs-AI reveal', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人対人/ }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/プレイヤー1が電流を仕掛ける番です。/)[0]).toBeDefined();
+    });
+    // P1が3番に仕掛ける
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('準備完了 (画面を渡しました)')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('準備完了 (画面を渡しました)')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('プレイヤー2の番です。座る椅子を選んでください。')[0]).toBeDefined();
+    });
+    // P2は安全な1番を選ぶ(3番の罠は踏まない)
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+
+    // 答え合わせ画面で、P1が仕掛けた3番の椅子が⚡付きで明示されている
+    const trapChairBtn = screen.getAllByRole('button').find(
+      b => b.textContent?.includes('#3') && b.textContent?.includes('⚡')
+    );
+    expect(trapChairBtn).toBeDefined();
+
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // 次のターンに進むと、3番の椅子は通常表示に戻る (まだ選択可能なため)
+    await waitFor(() => {
+      const resetChairBtn = screen.getAllByRole('button').find(b => b.textContent?.includes('#3'));
+      expect(resetChairBtn?.textContent?.includes('🪑')).toBe(true);
+    });
+  });
+
   it('reaches a genuine DRAW in GAME mode via chair exhaustion with tied scores and shocks', async () => {
     let aiMoveCount = 0;
     global.fetch = vi.fn((url: string | Request | URL) => {
