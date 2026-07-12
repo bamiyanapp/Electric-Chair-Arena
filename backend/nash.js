@@ -184,6 +184,9 @@ function getNashMove(playerId, role, remainingChairs) {
         }
       }
       if (!chosenChair) {
+        // rand(<totalProb)からgoodChairs全件のchooseProbを引き切れば必ず0以下になるため、
+        // ここには理論上到達しない。Math.random()の実際の出力範囲(検証済み)では
+        // 浮動小数点誤差によっても到達しなかったが、想定外の入力に備えた安全策として残す。
         chosenChair = goodChairs[goodChairs.length - 1];
       }
 
