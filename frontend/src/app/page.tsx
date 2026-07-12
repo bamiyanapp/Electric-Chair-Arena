@@ -40,6 +40,7 @@ type GameLog = {
   remainingChairs: number[];
   scores?: { p1: number; p2: number };
   shocks?: { p1: number; p2: number };
+  reasoning?: string;
 };
 
 type MatchResult = {
@@ -963,6 +964,7 @@ export function HomeContent() {
       let aiChosenChair = 0;
       let isShocked = false;
       let aiSetChairsForReveal: number[] | undefined;
+      let aiReasoning: string | undefined;
 
       if (isHumanSetter) {
         // 【人間が仕掛け、AIが選ぶ】
@@ -977,6 +979,7 @@ export function HomeContent() {
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
         aiChosenChair = aiRes.chosenChair;
+        aiReasoning = aiRes.reasoning;
         const humanSetChairs = [chair];
 
         isShocked = humanSetChairs.includes(aiChosenChair);
@@ -1014,6 +1017,7 @@ export function HomeContent() {
         playSound('/fix.mp3');
         const aiSetChairs = aiRes.setChairs;
         const humanChosenChair = chair;
+        aiReasoning = aiRes.reasoning;
 
         isShocked = aiSetChairs.includes(humanChosenChair);
         aiSetChairsForReveal = aiSetChairs;
@@ -1063,7 +1067,8 @@ export function HomeContent() {
           isShocked,
           remainingChairs: nextRemainingChairs,
           scores: newScores,
-          shocks: newShocks
+          shocks: newShocks,
+          reasoning: aiReasoning
         },
         aiSetChairs: aiSetChairsForReveal
       });
@@ -1239,10 +1244,19 @@ export function HomeContent() {
                     logs: m.logs || []
                   };
 
+                  const reasoningLogs = mockMatchResult.logs.filter(l => l.reasoning);
+
                   return (
                     <div key={m.matchId} className="border rounded-lg p-4 bg-gray-50 shadow-sm">
                       <div className="text-sm text-gray-500 mb-2">Match ID: {m.matchId} | Date: {new Date(m.createdAt).toLocaleString()}</div>
                       <BaseballScoreboard match={mockMatchResult} />
+                      {reasoningLogs.length > 0 && (
+                        <div className="mt-3 space-y-1 text-xs text-gray-600 text-left">
+                          {reasoningLogs.map(l => (
+                            <p key={l.turn}><span className="font-bold">Turn {l.turn}:</span> {l.reasoning}</p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1575,6 +1589,15 @@ export function HomeContent() {
                         )}
                       </p>
                     </div>
+
+                    {/* AIの心の声(reasoning)。仕掛け側の分もこの時点では既に本人の選択が
+                        確定した後のため、事前に見せてしまうネタバレにはならない。 */}
+                    {gameStep === 'SHOW_RESULT' && tempNextState?.newLog.reasoning && (
+                      <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-white border-2 border-purple-200 text-gray-800 p-4 rounded-xl shadow-sm text-sm sm:text-base animate-fade-in text-left">
+                        <span className="font-bold text-purple-700">🗯️ {matchResult.player2.name}: </span>
+                        {tempNextState.newLog.reasoning}
+                      </div>
+                    )}
 
                     {/* 実況エリア */}
                     {commentary && (
