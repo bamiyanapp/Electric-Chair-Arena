@@ -50,6 +50,29 @@ describe('Home Component', () => {
       writable: true
     });
 
+    // Mock sessionStorage
+    const sessionStorageMock = (() => {
+      let store: Record<string, string> = {};
+      return {
+        getItem: vi.fn((key: string) => store[key] || null),
+        setItem: vi.fn((key: string, value: string) => {
+          store[key] = value;
+        }),
+        removeItem: vi.fn((key: string) => {
+          delete store[key];
+        }),
+        clear: vi.fn(() => {
+          store = {};
+        })
+      };
+    })();
+    Object.defineProperty(window, 'sessionStorage', {
+      value: sessionStorageMock,
+      writable: true
+    });
+
+    window.confirm = vi.fn().mockReturnValue(true);
+
     originalSetTimeout = global.setTimeout;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (global as any).setTimeout = (cb: any, ms?: number, ...args: any[]) => {
@@ -1237,5 +1260,122 @@ describe('Home Component', () => {
       expect(screen.getAllByText('DRAW')[0]).toBeDefined();
       expect(screen.getAllByText('引き分け')[0]).toBeDefined();
     });
+  });
+
+  it('offers to resume a match found in session storage on mount, and restores it on confirmation', async () => {
+    const savedMatch = {
+      matchId: 'match-human-1',
+      mode: 'human',
+      player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+      player2: { playerId: 'ai-okano', name: '岡野陽一風AI', type: 'personality', rating: 1550, winCount: 0, matchCount: 0 },
+      winner: '',
+      ratingDiff: 0,
+      scores: { p1: 0, p2: 3 },
+      shocks: { p1: 0, p2: 0 },
+      logs: [
+        { turn: 1, isHumanSetter: true, chosenChair: 2, isShocked: false, remainingChairs: [1, 3, 4, 5], scores: { p1: 0, p2: 3 }, shocks: { p1: 0, p2: 0 } }
+      ]
+    };
+    window.sessionStorage.setItem('electric_chair_active_match', JSON.stringify(savedMatch));
+
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('前回の試合を再開しますか？')).toBeDefined();
+    });
+
+    // 復帰確認モーダルの表示中は、選択されるまでsessionStorageの保存内容を消してはならない
+    // (消してしまうと、選択前にもう一度リロードされた際に復帰できなくなる)
+    expect(window.sessionStorage.getItem('electric_chair_active_match')).not.toBeNull();
+
+    fireEvent.click(screen.getByText('再開する'));
+
+    // Turn2はAIが仕掛け側のため、人間が座る椅子を選ぶプロンプトへ復帰する
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    expect(screen.queryByText('前回の試合を再開しますか？')).toBeNull();
+  });
+
+  it('discards the resumable match found in session storage without restoring it', async () => {
+    const savedMatch = {
+      matchId: 'match-human-2',
+      mode: 'human',
+      player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+      player2: { playerId: 'ai-okano', name: '岡野陽一風AI', type: 'personality', rating: 1550, winCount: 0, matchCount: 0 },
+      winner: '',
+      ratingDiff: 0,
+      scores: { p1: 0, p2: 0 },
+      shocks: { p1: 0, p2: 0 },
+      logs: []
+    };
+    window.sessionStorage.setItem('electric_chair_active_match', JSON.stringify(savedMatch));
+
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('前回の試合を再開しますか？')).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByText('破棄する'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('前回の試合を再開しますか？')).toBeNull();
+    });
+    expect(window.sessionStorage.getItem('electric_chair_active_match')).toBeNull();
+    expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
+  });
+
+  it('keeps the player in the active match when leaving via "ロビーへ戻る" is cancelled', async () => {
+    window.confirm = vi.fn().mockReturnValue(false);
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'ロビーへ戻る' }));
+
+    expect(window.confirm).toHaveBeenCalled();
+    expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+  });
+
+  it('persists the in-progress match to session storage and clears it once the match ends', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(window.sessionStorage.setItem).toHaveBeenCalledWith(
+        'electric_chair_active_match',
+        expect.stringContaining('"matchId"')
+      );
+    });
+  });
+
+  it('warns via the browser-native prompt before leaving the page while a match is active', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const event = new Event('beforeunload', { cancelable: true });
+    const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+    window.dispatchEvent(event);
+
+    expect(preventDefaultSpy).toHaveBeenCalled();
   });
 });

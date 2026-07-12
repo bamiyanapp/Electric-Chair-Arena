@@ -97,6 +97,31 @@ function parseStoredMatches(raw: string): MatchRecord[] {
   return parsed.filter(isValidMatchRecord);
 }
 
+// 進行中の試合をリロードをまたいで復元できるよう、sessionStorageに保存する際のキー。
+const ACTIVE_MATCH_STORAGE_KEY = 'electric_chair_active_match';
+
+// sessionStorageの内容は手動編集や旧スキーマとの混在で壊れている可能性があるため、
+// 復帰処理に使う前に構造を検証する。
+function isValidPlayer(value: unknown): value is Player {
+  if (!value || typeof value !== 'object') return false;
+  const p = value as Record<string, unknown>;
+  return typeof p.playerId === 'string' && typeof p.name === 'string';
+}
+
+function isValidMatchResult(value: unknown): value is MatchResult {
+  if (!value || typeof value !== 'object') return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.matchId === 'string' &&
+    (m.mode === 'human' || m.mode === 'pvp') &&
+    isValidPlayer(m.player1) && isValidPlayer(m.player2) &&
+    typeof m.winner === 'string' &&
+    !!m.scores && typeof (m.scores as Record<string, unknown>).p1 === 'number' &&
+    !!m.shocks && typeof (m.shocks as Record<string, unknown>).p1 === 'number' &&
+    Array.isArray(m.logs) && m.logs.every(isValidGameLog)
+  );
+}
+
 function BaseballScoreboard({ match }: { match: MatchResult }) {
   const maxInnings = Math.max(1, Math.ceil((match.logs.length + 1) / 2));
   const innings = Array.from({ length: maxInnings }, (_, i) => i + 1);
@@ -455,6 +480,8 @@ export function HomeContent() {
   const [error, setError] = useState('');
   
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
+  // リロード等で失われた進行中の試合をsessionStorageから復元できる場合に保持する
+  const [resumableMatch, setResumableMatch] = useState<MatchResult | null>(null);
 
   // 人間対AIモードでの演出管理ステート
   const [gameStep, setGameStep] = useState<'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT'>('IDLE');
@@ -735,6 +762,95 @@ export function HomeContent() {
   const isGameActive = (currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
                        (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp');
 
+  // 復帰確認待ち(resumableMatchの提示中〜ユーザーが選択するまで)の間、直後にマウントする
+  // 保存用effectがsessionStorageを上書き/削除してしまわないようにするガード。
+  // 同一コミット内ではstateの更新がまだ他のeffectのクロージャに反映されないため、
+  // stateではなくrefで同期的に共有する。
+  const pendingResumeRef = React.useRef(false);
+
+  // マウント時に一度だけ、前回リロード等で失われた進行中の試合が無いか確認する
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(ACTIVE_MATCH_STORAGE_KEY);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (isValidMatchResult(parsed) && !parsed.winner) {
+          pendingResumeRef.current = true;
+          setResumableMatch(parsed);
+        } else {
+          sessionStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore active match from session storage', e);
+    }
+  }, []);
+
+  // 試合が進行中の間だけsessionStorageへ保存し、決着後や試合開始前はクリアする
+  useEffect(() => {
+    if (pendingResumeRef.current) return;
+    try {
+      if (matchResult && !matchResult.winner) {
+        sessionStorage.setItem(ACTIVE_MATCH_STORAGE_KEY, JSON.stringify(matchResult));
+      } else {
+        sessionStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn('Failed to persist active match to session storage', e);
+    }
+  }, [matchResult]);
+
+  // 対戦画面を表示中はタブを閉じる/リロードする操作にブラウザ標準の離脱警告を出す
+  useEffect(() => {
+    if (!isGameActive) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isGameActive]);
+
+  // 進行中の試合を持ったままロビーへ戻ろうとした場合のみ確認ダイアログを出す
+  const handleLeaveActiveMatch = () => {
+    const hasUnfinishedMatch = isGameActive && !!matchResult && !matchResult.winner;
+    if (hasUnfinishedMatch && !window.confirm('進行中の試合は失われます。ロビーへ戻りますか？')) {
+      return;
+    }
+    setCurrentView('LOBBY');
+  };
+
+  const handleResumeMatch = () => {
+    if (!resumableMatch) return;
+    pendingResumeRef.current = false;
+    setMatchResult(resumableMatch);
+    setCurrentView(resumableMatch.mode === 'pvp' ? 'PVP_GAME' : 'GAME');
+    if (resumableMatch.mode === 'pvp') {
+      const turn = resumableMatch.logs.length + 1;
+      const isP1Setter = turn % 2 !== 0;
+      setPvpStage('LOBBY_START');
+      setPvpStatusMessage(`${isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が電流を仕掛ける番です。`);
+    } else {
+      setGameStep('IDLE');
+      setStatusMessage('');
+    }
+    setHighlightedChair(null);
+    setShockedChair(null);
+    setTempNextState(null);
+    setCommentary('');
+    setResumableMatch(null);
+  };
+
+  const handleDiscardResumableMatch = () => {
+    pendingResumeRef.current = false;
+    try {
+      sessionStorage.removeItem(ACTIVE_MATCH_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Failed to clear active match from session storage', e);
+    }
+    setResumableMatch(null);
+  };
+
   const handlePvpChairClick = async (chair: number) => {
     if (!matchResult || loading) return;
     const token = matchTokenRef.current;
@@ -951,10 +1067,22 @@ export function HomeContent() {
 
   return (
     <main className="min-h-screen p-4 sm:p-8 bg-gray-50 text-gray-900 font-sans">
+      {resumableMatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-lg p-6 max-w-sm w-full text-center space-y-4">
+            <h3 className="text-lg font-bold text-gray-900">前回の試合を再開しますか？</h3>
+            <p className="text-sm text-gray-600">リロード等により中断された対戦が見つかりました。</p>
+            <div className="flex gap-3 justify-center">
+              <button onClick={handleResumeMatch} className="px-4 py-2 bg-green-600 text-white font-bold rounded-md hover:bg-green-700">再開する</button>
+              <button onClick={handleDiscardResumableMatch} className="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded-md hover:bg-gray-300">破棄する</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-4xl mx-auto space-y-4 sm:space-y-8">
         {/* 対戦中・対戦結果が表示されている間（対戦開始後）はヘッダーをカットする */}
         {!isGameActive && (
-          <header className="text-center space-y-1 sm:space-y-2 cursor-pointer py-2 sm:py-4" onClick={() => setCurrentView('LOBBY')}>
+          <header className="text-center space-y-1 sm:space-y-2 cursor-pointer py-2 sm:py-4" onClick={handleLeaveActiveMatch}>
             <img 
               src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/icon.png`} 
               alt="Electric Chair Arena Icon" 
@@ -1005,7 +1133,7 @@ export function HomeContent() {
           <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold">対戦結果</h2>
-              <button onClick={() => setCurrentView('LOBBY')} className="text-blue-600 hover:underline font-medium">ロビーへ戻る</button>
+              <button onClick={handleLeaveActiveMatch} className="text-blue-600 hover:underline font-medium">ロビーへ戻る</button>
             </div>
             
             <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl mb-6 border border-blue-100 text-center">
@@ -1044,7 +1172,7 @@ export function HomeContent() {
           <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold">リーダーボード</h2>
-              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+              <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
             </div>
             
             <div className="overflow-x-auto">
@@ -1078,7 +1206,7 @@ export function HomeContent() {
           <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold">過去のスコアボード一覧</h2>
-              <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+              <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
             </div>
             
             {matchesList.length === 0 ? (
@@ -1117,7 +1245,7 @@ export function HomeContent() {
               <>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
-                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
                 </div>
                 
                 <div className="text-center mt-8">
@@ -1265,7 +1393,7 @@ export function HomeContent() {
                 )}
 
                 <div className="mt-8 text-center border-t pt-4">
-                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">
+                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">
                     ロビーへ戻る
                   </button>
                 </div>
@@ -1281,7 +1409,7 @@ export function HomeContent() {
               <>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-semibold">人間対AI モード</h2>
-                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -1441,7 +1569,7 @@ export function HomeContent() {
 
                 {/* 戻るリンクを最下部に移動 */}
                 <div className="mt-8 text-center border-t pt-4">
-                  <button onClick={() => setCurrentView('LOBBY')} className="text-gray-500 hover:underline">
+                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">
                     ロビーへ戻る
                   </button>
                 </div>
