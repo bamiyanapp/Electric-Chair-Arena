@@ -510,18 +510,23 @@ describe('Home Component', () => {
       expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
     });
 
-    // ロビーにいる間に、古いターン処理(sleep)が今になって解決する
+    // ロビーにいる間に、古いターン処理(sleep)が今になって解決する。
+    // ロビーへ戻った時点で試合は破棄されているため、これが例外を投げたり
+    // ロビーの表示を書き換えたりしてはならない
     await act(async () => {
       resolveStaleSleep!();
       await Promise.resolve();
     });
+    expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
 
-    // ゲームに戻っても、離脱前の「AI思考中」の状態のまま止まっているはずで、
-    // 裏で勝手にターンが進んで結果確定ボタンが出現していてはならない
+    // 「ロビーへ戻る」で確認ダイアログに応じた時点で試合は破棄されるため、
+    // 再度「人間対AI」を選んでも離脱前の状態は残っておらず、対戦相手選択画面
+    // (対戦開始ボタン)から始まる
     fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
     await waitFor(() => {
-      expect(screen.getAllByText(/AIが座る椅子を選んでいます/)[0]).toBeDefined();
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
     });
+    expect(screen.queryByText(/AIが座る椅子を選んでいます/)).toBeNull();
     expect(screen.queryByText(/最終結果を見る|次のターンへ/)).toBeNull();
   });
 
@@ -1783,5 +1788,69 @@ describe('Home Component', () => {
       expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
     });
     expect(screen.getAllByText(/小籔千豊風AI/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the opponent-selection screen again after leaving a finished match to the lobby, instead of skipping straight back into the old result', async () => {
+    let aiMoveCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        aiMoveCount++;
+        if (aiMoveCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 1, setChairs: [] }) } as Response);
+        if (aiMoveCount === 2) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [5] }) } as Response);
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 2, setChairs: [] }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('WINNER')[0]).toBeDefined();
+    });
+
+    // 決着済みの試合結果画面から「ロビーへ戻る」で抜け、再度「人間対AI」を選ぶと、
+    // 直前の(決着済みの)試合結果表示ではなく対戦相手選択画面(対戦開始ボタン)から
+    // 始まらなければならない
+    fireEvent.click(screen.getAllByRole('button', { name: 'ロビーへ戻る' })[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    expect(screen.queryByText('WINNER')).toBeNull();
   });
 });
