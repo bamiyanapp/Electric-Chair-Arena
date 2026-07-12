@@ -359,6 +359,20 @@ describe('getNashMove', () => {
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
+  it('falls back to the highest-expected-value chair when remainingChairs contains a duplicate, making every expected value fall below the game value (goodChairs empty branch)', () => {
+    // 重複値を含む椅子集合を与えると、chooseProbが重複キーで合算される一方
+    // expectedValuesは配列の各要素ごとに計算されるため、gameValue(重み付き平均)が
+    // 全要素のexpectedValueを上回り、goodChairsが空になるケースを再現できる。
+    // (handler.js側のremainingChairsバリデーションは要素の一意性までは
+    // 検証していないため、実際のAPI経由でも到達しうる分岐)
+    const result = getNashMove('ai-nash', 'choose', [1, 1, 2]);
+
+    expect(result).toHaveProperty('chosenChair');
+    expect(typeof result.chosenChair).toBe('number');
+    expect(result.reasoning).toContain('全ての椅子がゲームの値');
+    expect(result.reasoning).toContain('最も期待値の高い椅子');
+  });
+
   it('should return deterministic results for setter with same remaining chairs', () => {
     const result1 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
     const result2 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
