@@ -20,6 +20,10 @@ const RULE_DESCRIPTIONS = [
   `残り椅子が${GAME_RULES.MIN_CHAIRS_TO_END}脚になった時点で試合終了。得点が高い方が勝ち、同点なら感電回数が少ない方が勝ち、それも同じなら引き分けです。`,
 ];
 
+// 効果音のミュート設定を保存するキーと、既定の再生音量。
+const MUTE_STORAGE_KEY = 'electric_chair_muted';
+const DEFAULT_SOUND_VOLUME = 0.5;
+
 // 対戦相手選択・プレイヤー一覧でAIの性格・戦略を一言で伝えるための説明文。
 const AI_DESCRIPTIONS: Record<string, string> = {
   'ai-okano': 'ギャンブラータイプ。高得点を狙って大胆に椅子を仕掛けてくる。',
@@ -512,6 +516,28 @@ export function HomeContent() {
   // リロード等で失われた進行中の試合をsessionStorageから復元できる場合に保持する
   const [resumableMatch, setResumableMatch] = useState<MatchResult | null>(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+
+  // マウント時に一度だけ、保存済みのミュート設定を復元する
+  useEffect(() => {
+    try {
+      setIsMuted(localStorage.getItem(MUTE_STORAGE_KEY) === 'true');
+    } catch (e) {
+      console.warn('Failed to read mute setting from local storage', e);
+    }
+  }, []);
+
+  const handleToggleMute = () => {
+    setIsMuted(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem(MUTE_STORAGE_KEY, String(next));
+      } catch (e) {
+        console.warn('Failed to persist mute setting to local storage', e);
+      }
+      return next;
+    });
+  };
 
   // 人間対AIモードでの演出管理ステート
   const [gameStep, setGameStep] = useState<'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT'>('IDLE');
@@ -541,12 +567,14 @@ export function HomeContent() {
   const audioPoolRef = React.useRef<Map<string, HTMLAudioElement>>(new Map());
 
   const playSound = (src: string) => {
+    if (isMuted) return;
     if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
       const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
       const url = `${basePath}${src}`;
       let audio = audioPoolRef.current.get(url);
       if (!audio) {
         audio = new Audio(url);
+        audio.volume = DEFAULT_SOUND_VOLUME;
         audioPoolRef.current.set(url, audio);
       }
       audio.currentTime = 0;
@@ -1138,6 +1166,14 @@ export function HomeContent() {
           </div>
         </div>
       )}
+      <button
+        onClick={handleToggleMute}
+        aria-label={isMuted ? '効果音をオンにする' : '効果音をオフにする'}
+        aria-pressed={isMuted}
+        className="fixed top-2 right-2 z-40 w-10 h-10 flex items-center justify-center rounded-full bg-white shadow-md border border-gray-200 text-xl hover:bg-gray-50"
+      >
+        {isMuted ? '🔇' : '🔊'}
+      </button>
       <div className="max-w-4xl mx-auto space-y-4 sm:space-y-8">
         {/* 対戦中・対戦結果が表示されている間（対戦開始後）はヘッダーをカットする */}
         {!isGameActive && (

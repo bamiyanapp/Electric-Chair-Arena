@@ -1643,4 +1643,48 @@ describe('Home Component', () => {
       expect(screen.getAllByText(/あなた: あと10点/)[0]).toBeDefined();
     });
   });
+
+  it('toggles the sound mute setting, persists it to local storage, and stops playing sounds while muted', async () => {
+    render(<HomeContent />);
+
+    const muteButton = screen.getByRole('button', { name: '効果音をオフにする' });
+    fireEvent.click(muteButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '効果音をオンにする' })).toBeDefined();
+    });
+    expect(window.localStorage.setItem).toHaveBeenCalledWith('electric_chair_muted', 'true');
+
+    const audioCallsBefore = (window.Audio as unknown as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+
+    // ミュート中は新たにAudioが生成・再生されない
+    expect((window.Audio as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(audioCallsBefore);
+
+    // 再度クリックするとミュートが解除され、設定もfalseで保存される
+    fireEvent.click(screen.getByRole('button', { name: '効果音をオンにする' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '効果音をオフにする' })).toBeDefined();
+    });
+    expect(window.localStorage.setItem).toHaveBeenCalledWith('electric_chair_muted', 'false');
+  });
+
+  it('restores a previously saved mute setting from local storage on mount', async () => {
+    window.localStorage.setItem('electric_chair_muted', 'true');
+
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '効果音をオンにする' })).toBeDefined();
+    });
+  });
 });
