@@ -995,6 +995,44 @@ describe('Home Component', () => {
     });
   });
 
+  it('filters out a locally stored match record with an invalid mode value, but keeps a valid one', async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    const customMatches = [
+      {
+        matchId: 'match-with-bad-mode',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-random',
+        winnerId: 'ai-random',
+        ratingDiff: 10,
+        createdAt: new Date().toISOString(),
+        logs: [],
+        mode: 'not-a-real-mode'
+      },
+      {
+        // matchIdのprefixだけを見ると'human'に見えるが、明示的なmode: 'pvp'を優先すべきレコード
+        matchId: 'match-with-explicit-pvp-mode',
+        player1Id: 'p1',
+        player2Id: 'p2',
+        winnerId: 'p1',
+        ratingDiff: 0,
+        createdAt: new Date().toISOString(),
+        logs: [],
+        mode: 'pvp'
+      }
+    ];
+    window.localStorage.setItem('electric_chair_matches', JSON.stringify(customMatches));
+
+    render(<HomeContent />);
+    const btn = screen.getByRole('button', { name: /過去のスコアボード一覧/ });
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/match-with-explicit-pvp-mode/).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText(/match-with-bad-mode/)).toBeNull();
+  });
+
   it('covers fallback in getAiMoveMock', async () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
     
@@ -1219,6 +1257,13 @@ describe('Home Component', () => {
     
     // Verify we're still in PVP_GAME view (not RESULT view)
     expect(mockPush).toHaveBeenCalledWith(expect.stringContaining('view=PVP_GAME'), { scroll: false });
+
+    // 保存された試合記録に明示的なmodeが付与され、matchIdの文字列prefixに
+    // 頼らずモードを復元できること
+    const savedMatchesCall = (window.localStorage.setItem as ReturnType<typeof vi.fn>).mock.calls
+      .find(([key]) => key === 'electric_chair_matches');
+    expect(savedMatchesCall).toBeDefined();
+    expect(JSON.parse(savedMatchesCall![1])[0].mode).toBe('pvp');
   });
 
   it('reaches a genuine DRAW in PVP mode via chair exhaustion with tied scores and shocks', async () => {

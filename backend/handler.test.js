@@ -403,6 +403,36 @@ describe('Backend Handler Specification Tests', () => {
     expect(resBadShocks.statusCode).toBe(400);
   });
 
+  it('should reject saveMatch with an invalid mode value', async () => {
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-bad-mode',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        mode: 'not-a-real-mode',
+      }),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('should persist a provided mode to DynamoDB so the frontend does not have to infer it from matchId', async () => {
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-mode-pvp',
+        player1Id: 'p1',
+        player2Id: 'p2',
+        winnerId: 'p1',
+        mode: 'pvp',
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+
+    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(putCommand.input.Item.matchId).toBe('test-mode-pvp');
+    expect(putCommand.input.Item.mode).toBe('pvp');
+  });
+
   it('should reject saveMatch logs with an out-of-range or duplicate chosenChair', async () => {
     const resOutOfRange = await saveMatch({
       body: JSON.stringify({
