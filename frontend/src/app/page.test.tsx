@@ -1687,4 +1687,86 @@ describe('Home Component', () => {
       expect(screen.getByRole('button', { name: '効果音をオンにする' })).toBeDefined();
     });
   });
+
+  it('shows a rematch button, the embedded scoreboard, and the AI rating change on the RESULT screen, and the rematch button starts a fresh match with the same opponent', async () => {
+    let aiMoveCount = 0;
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        aiMoveCount++;
+        // Turn1(choose): 人間が仕掛けた#1にAIが座って感電(1回目)
+        if (aiMoveCount === 1) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 1, setChairs: [] }) } as Response);
+        // Turn2(set): AIは#5に仕掛け、人間は#3を選んで安全
+        if (aiMoveCount === 2) return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 0, setChairs: [5] }) } as Response);
+        // Turn3(choose): 人間が仕掛けた#2にAIが座って感電(2回目, MAX_SHOCKSに到達し人間の勝利)
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ chosenChair: 2, setChairs: [] }) } as Response);
+      }
+      if (urlStr.includes('save-match')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, match: { aiRatingDiff: -16 } })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    // Turn1: 人間が#1に仕掛け、AIが感電(1回目)
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#1'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn2: AIが#5に仕掛け、人間は#3を選んで安全
+    await waitFor(() => {
+      expect(screen.getAllByText(/安全だと思う椅子を選んで座ってください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#3'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('次のターンへ')[0]);
+
+    // Turn3: 人間が#2に仕掛け、AIが感電(2回目) -> 人間の勝利
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'))[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText('最終結果を見る')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('最終結果を見る')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('WINNER')[0]).toBeDefined();
+    });
+
+    // 埋め込みスコアボードが表示されている
+    expect(screen.getByText('★ ELECTRIC ARENA SCOREBOARD ★')).toBeDefined();
+
+    // save-matchのレスポンスから受け取ったAIのレーティング変動が表示されている
+    // (デフォルトの対戦相手は小籔千豊風AI: rating 1600)
+    await waitFor(() => {
+      expect(screen.getAllByText(/小籔千豊風AI/).length).toBeGreaterThan(0);
+      expect(screen.getByText(/1600 → 1584/)).toBeDefined();
+      expect(screen.getByText(/\(-16\)/)).toBeDefined();
+    });
+
+    // 「同じ相手と再戦」を押すと、同じ相手(小籔千豊風AI)との新しい対戦がGAME画面で始まる
+    fireEvent.click(screen.getByRole('button', { name: '同じ相手と再戦' }));
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+    expect(screen.getAllByText(/小籔千豊風AI/).length).toBeGreaterThan(0);
+  });
 });

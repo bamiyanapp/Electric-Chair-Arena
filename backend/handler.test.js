@@ -338,6 +338,7 @@ describe('Backend Handler Specification Tests', () => {
     const body = JSON.parse(res.body);
     expect(body.success).toBe(true);
     expect(body.match.ratingDiff).toBe(0);
+    expect(body.match.aiRatingDiff).toBeNull();
 
     // 試合記録はDynamoDBへ保存される
     const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
@@ -497,6 +498,36 @@ describe('Backend Handler Specification Tests', () => {
       .find((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
     expect(playerUpdateCommand).toBeDefined();
     expect(playerUpdateCommand.input.Key.playerId).toBe('ai-okano');
+  });
+
+  it('returns a signed aiRatingDiff from the AI\'s perspective so the frontend can show before/after rating without guessing the sign', async () => {
+    const resAiWins = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-ai-rating-diff-win',
+        player1Id: 'human',
+        player2Id: 'ai-okano',
+        winnerId: 'ai-okano',
+        scores: { p1: 5, p2: 40 },
+        shocks: { p1: 2, p2: 0 },
+        logs: [],
+      }),
+    });
+    const winBody = JSON.parse(resAiWins.body);
+    expect(winBody.match.aiRatingDiff).toBeGreaterThan(0);
+
+    const resAiLoses = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-ai-rating-diff-loss',
+        player1Id: 'human',
+        player2Id: 'ai-junior',
+        winnerId: 'human',
+        scores: { p1: 40, p2: 5 },
+        shocks: { p1: 0, p2: 2 },
+        logs: [],
+      }),
+    });
+    const lossBody = JSON.parse(resAiLoses.body);
+    expect(lossBody.match.aiRatingDiff).toBeLessThan(0);
   });
 
   const findPlayer = async (playerId) => {
