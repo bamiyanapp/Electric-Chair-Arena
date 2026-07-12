@@ -21,9 +21,11 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <head>
-        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-        <meta httpEquiv="Pragma" content="no-cache" />
-        <meta httpEquiv="Expires" content="0" />
+        {/* キャッシュ戦略はService Worker(public/sw.js)側に一本化している。
+            SWはネットワークを優先し、オフライン時のみキャッシュへフォールバック
+            するため、常に最新を取得する意図は既に満たされている。
+            なお、http-equiv="Cache-Control"等のmetaタグはモダンブラウザ/CDNでは
+            ほぼ無視され実効性が無いため、ここでは付与しない。 */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
