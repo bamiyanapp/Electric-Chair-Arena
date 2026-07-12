@@ -605,7 +605,7 @@ export function HomeContent() {
   // バックエンドに到達できない場合は無戦略の完全ランダムにフォールバックする。
   // 選択したAIとは無関係な相手と対戦していることを呼び出し元がUIに示せるよう、
   // isFallbackで区別できるようにする。
-  const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[], opponentShocks: number) => {
+  const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[]) => {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
       // 現状はバックエンドと結合していないためモックのままにするか、直接実装する
@@ -616,7 +616,7 @@ export function HomeContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ aiPlayerId, role, remainingChairs, opponentShocks })
+        body: JSON.stringify({ aiPlayerId, role, remainingChairs })
       });
       if (res.ok) {
         return { ...(await res.json()), isFallback: false };
@@ -1000,7 +1000,7 @@ export function HomeContent() {
         await sleep(1500);
         if (matchTokenRef.current !== token) return;
 
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, newShocks.p1);
+        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs);
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
@@ -1037,7 +1037,7 @@ export function HomeContent() {
         await sleep(1500);
         if (matchTokenRef.current !== token) return;
 
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, newShocks.p1);
+        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs);
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');

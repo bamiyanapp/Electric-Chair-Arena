@@ -185,7 +185,7 @@ module.exports.getLeaderboard = async () => {
 module.exports.getAiMove = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { aiPlayerId, role, remainingChairs, opponentShocks } = body;
+    const { aiPlayerId, role, remainingChairs } = body;
 
     if (!aiPlayerId || !role || !remainingChairs) {
       return {
@@ -208,7 +208,7 @@ module.exports.getAiMove = async (event) => {
       };
     }
 
-    const move = computeAiMove(aiPlayerId, role, remainingChairs, opponentShocks || 0);
+    const move = computeAiMove(aiPlayerId, role, remainingChairs);
 
     return {
       statusCode: 200,
