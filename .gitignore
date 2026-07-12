@@ -15,6 +15,7 @@ out/
 */coverage/
 .next/
 next-env.d.ts
+*.tsbuildinfo
 
 # IDE
 .vscode/
