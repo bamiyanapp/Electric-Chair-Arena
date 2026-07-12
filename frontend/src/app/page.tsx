@@ -1328,7 +1328,7 @@ export function HomeContent() {
                     onClick={() => {
                       setLoading(true);
                       setMatchResult({
-                        matchId: `match-pvp-${Date.now()}`,
+                        matchId: `match-pvp-${crypto.randomUUID()}`,
                         mode: 'pvp',
                         player1: { playerId: 'p1', name: 'プレイヤー1', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
                         player2: { playerId: 'p2', name: 'プレイヤー2', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
@@ -1517,7 +1517,7 @@ export function HomeContent() {
                   onClick={() => {
                     setLoading(true);
                     setMatchResult({
-                      matchId: `match-human-${Date.now()}`,
+                      matchId: `match-human-${crypto.randomUUID()}`,
                       mode: 'human',
                       player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
                       player2: players.find(p => p.playerId === player2Id)!,

@@ -1,9 +1,10 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
 const { GAME_RULES, getNumToSet } = require('./rules.js');
 const { GoogleGenAI } = require('@google/genai');
 const { getNashMove } = require('./nash.js');
-const { PutCommand, GetCommand, ScanCommand } = require('@aws-sdk/lib-dynamodb');
+const { PutCommand, GetCommand, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
 const { initialPlayers, initialMatches } = require('./seedData.js');
 
@@ -44,21 +45,56 @@ function errorResponse(statusCode, clientMessage, logContext, error) {
   };
 }
 
-// 試合終了後のスコアボードをDynamoDBへ記録する。書き込み失敗時もゲーム結果のレスポンスは返す。
+// 試合終了後のスコアボードをDynamoDBへ記録する。matchIdはUUIDのため衝突は
+// 実質起こり得ないが、万一の衝突で既存の試合記録を上書きしないよう
+// attribute_not_existsで条件付き書き込みにする。書き込み失敗時(衝突含む)も
+// ゲーム結果のレスポンスは返す。
 async function recordMatchToDynamo(match) {
   try {
-    await docClient.send(new PutCommand({ TableName: MATCHES_TABLE, Item: match }));
+    await docClient.send(new PutCommand({
+      TableName: MATCHES_TABLE,
+      Item: match,
+      ConditionExpression: 'attribute_not_exists(matchId)',
+    }));
   } catch (error) {
     console.error('Failed to record match to DynamoDB:', error);
   }
 }
 
-// プレイヤーのレーティング等をDynamoDBへ保存する。書き込み失敗時もゲーム結果のレスポンスは返す。
-async function savePlayer(player) {
+// プレイヤーのレーティング・勝敗数をDynamoDBへ加算更新する。read-modify-write
+// (読み出し→ローカルで加算→無条件PutCommandで全属性上書き)だと、同一AIに対する
+// 複数の試合結果がほぼ同時に保存された場合、後勝ちで一方の更新が失われる
+// (lost update)。ADD/if_not_existsによる加算式のUpdateCommandに変更し、
+// DynamoDB側でアトミックに反映されるようにする。項目がまだ存在しない
+// (初回保存)場合はif_not_existsのフォールバック値としてplayer(=getPlayerById等
+// が返すシード初期値)の値を使う。
+async function applyPlayerRatingUpdate(player, ratingDiff, isWin) {
   try {
-    await docClient.send(new PutCommand({ TableName: PLAYERS_TABLE, Item: player }));
+    await docClient.send(new UpdateCommand({
+      TableName: PLAYERS_TABLE,
+      Key: { playerId: player.playerId },
+      UpdateExpression:
+        'SET rating = if_not_exists(rating, :seedRating) + :ratingDiff, ' +
+        'matchCount = if_not_exists(matchCount, :seedMatchCount) + :one, ' +
+        'winCount = if_not_exists(winCount, :seedWinCount) + :winInc, ' +
+        '#name = if_not_exists(#name, :name), ' +
+        '#type = if_not_exists(#type, :type), ' +
+        'updatedAt = :updatedAt',
+      ExpressionAttributeNames: { '#name': 'name', '#type': 'type' },
+      ExpressionAttributeValues: {
+        ':seedRating': player.rating,
+        ':ratingDiff': ratingDiff,
+        ':seedMatchCount': player.matchCount,
+        ':seedWinCount': player.winCount,
+        ':one': 1,
+        ':winInc': isWin ? 1 : 0,
+        ':name': player.name,
+        ':type': player.type,
+        ':updatedAt': new Date().toISOString(),
+      },
+    }));
   } catch (error) {
-    console.error(`Failed to save player ${player.playerId} to DynamoDB:`, error);
+    console.error(`Failed to update player ${player.playerId} rating in DynamoDB:`, error);
   }
 }
 
@@ -454,6 +490,13 @@ module.exports.startMatch = async (event) => {
       // ELOレーティング更新
       ratingDiff = computeEloDiff(winner.rating, loser.rating, 1);
 
+      // DBへはこの時点の(加算前の)スナップショットを渡し、アトミックな加算として
+      // 反映する。ローカルの加算は下のレスポンス表示用のみに使う。
+      await Promise.all([
+        applyPlayerRatingUpdate(winner, ratingDiff, true),
+        applyPlayerRatingUpdate(loser, -ratingDiff, false),
+      ]);
+
       winner.rating += ratingDiff;
       loser.rating -= ratingDiff;
 
@@ -463,11 +506,14 @@ module.exports.startMatch = async (event) => {
 
       winner.updatedAt = new Date().toISOString();
       loser.updatedAt = new Date().toISOString();
-
-      await Promise.all([savePlayer(winner), savePlayer(loser)]);
     } else {
       // 引き分け
       const p1Diff = computeEloDiff(p1.rating, p2.rating, 0.5);
+
+      await Promise.all([
+        applyPlayerRatingUpdate(p1, p1Diff, false),
+        applyPlayerRatingUpdate(p2, -p1Diff, false),
+      ]);
 
       p1.rating += p1Diff;
       p2.rating -= p1Diff;
@@ -477,11 +523,9 @@ module.exports.startMatch = async (event) => {
 
       p1.updatedAt = new Date().toISOString();
       p2.updatedAt = new Date().toISOString();
-
-      await Promise.all([savePlayer(p1), savePlayer(p2)]);
     }
 
-    const matchId = `match-${Date.now()}`;
+    const matchId = `match-${randomUUID()}`;
     const newMatch = {
       matchId,
       player1Id,
@@ -752,11 +796,12 @@ module.exports.saveMatch = async (event) => {
       const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
       ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
 
+      await applyPlayerRatingUpdate(aiPlayer, ratingDiff, isAiWinner);
+
       aiPlayer.rating += ratingDiff;
       aiPlayer.matchCount += 1;
       if (isAiWinner) aiPlayer.winCount += 1;
       aiPlayer.updatedAt = new Date().toISOString();
-      await savePlayer(aiPlayer);
     }
 
     const newMatch = {
