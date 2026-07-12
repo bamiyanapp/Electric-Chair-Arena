@@ -41,6 +41,26 @@ function defaultDynamoSend(command) {
     }
     case 'ScanCommand':
       return { Items: Array.from(store.values()) };
+    case 'UpdateCommand': {
+      // handler.jsのapplyPlayerRatingUpdateが生成する
+      // "SET x = if_not_exists(x, :seed) + :diff, ..." パターンのみをエミュレートする。
+      const keyName = tableKeyName[tableName];
+      const key = command.input.Key[keyName];
+      const existing = store.get(key) || {};
+      const values = command.input.ExpressionAttributeValues || {};
+      const merged = {
+        ...existing,
+        [keyName]: key,
+        rating: (existing.rating !== undefined ? existing.rating : values[':seedRating']) + values[':ratingDiff'],
+        matchCount: (existing.matchCount !== undefined ? existing.matchCount : values[':seedMatchCount']) + values[':one'],
+        winCount: (existing.winCount !== undefined ? existing.winCount : values[':seedWinCount']) + values[':winInc'],
+        name: existing.name !== undefined ? existing.name : values[':name'],
+        type: existing.type !== undefined ? existing.type : values[':type'],
+        updatedAt: values[':updatedAt'],
+      };
+      store.set(key, merged);
+      return {};
+    }
     default:
       return {};
   }
@@ -102,6 +122,8 @@ describe('Backend Handler Specification Tests', () => {
     const body = JSON.parse(response.body);
     
     expect(body.matchId).toBeDefined();
+    // UUIDベースのmatchId(Date.now()由来の衝突しやすいIDではない)であること
+    expect(body.matchId).toMatch(/^match-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(body.player1.playerId).toBe('ai-okano');
     expect(body.player2.playerId).toBe('ai-junior');
     expect(body.winner).toBeDefined();
@@ -128,12 +150,12 @@ describe('Backend Handler Specification Tests', () => {
     expect(matchPutCommand).toBeDefined();
     expect(matchPutCommand.input.Item.matchId).toBe(body.matchId);
 
-    // 勝者・敗者のレーティングもDynamoDBへ保存されていること
-    const playerPutCommands = dynamoSendMock.mock.calls
+    // 勝者・敗者のレーティングもDynamoDBへ(アトミックな加算として)保存されていること
+    const playerUpdateCommands = dynamoSendMock.mock.calls
       .map(([command]) => command)
-      .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
-    expect(playerPutCommands.length).toBe(2);
-    const savedPlayerIds = playerPutCommands.map((command) => command.input.Item.playerId).sort();
+      .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
+    expect(playerUpdateCommands.length).toBe(2);
+    const savedPlayerIds = playerUpdateCommands.map((command) => command.input.Key.playerId).sort();
     expect(savedPlayerIds).toEqual(['ai-junior', 'ai-okano']);
   });
 
@@ -470,11 +492,82 @@ describe('Backend Handler Specification Tests', () => {
       }),
     });
 
-    const playerPutCommand = dynamoSendMock.mock.calls
+    const playerUpdateCommand = dynamoSendMock.mock.calls
       .map(([command]) => command)
-      .find((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
-    expect(playerPutCommand).toBeDefined();
-    expect(playerPutCommand.input.Item.playerId).toBe('ai-okano');
+      .find((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
+    expect(playerUpdateCommand).toBeDefined();
+    expect(playerUpdateCommand.input.Key.playerId).toBe('ai-okano');
+  });
+
+  const findPlayer = async (playerId) => {
+    const res = await getPlayers({});
+    const players = JSON.parse(res.body).players;
+    return players.find((p) => p.playerId === playerId);
+  };
+
+  it('does not lose either rating update when two saveMatch calls for the same AI are processed concurrently (lost update regression test)', async () => {
+    // 同一AI(ai-koyabu)に対する2試合をほぼ同時に保存する。read-modify-write方式
+    // (無条件PutCommandでの全属性上書き)だと後勝ちで一方のwinCount/matchCount加算が
+    // 失われるが、アトミックなUpdateCommandであればどちらも反映されるはず。
+    const before = await findPlayer('ai-koyabu');
+
+    await Promise.all([
+      saveMatch({
+        body: JSON.stringify({
+          matchId: 'test-concurrent-1',
+          player1Id: 'human',
+          player2Id: 'ai-koyabu',
+          winnerId: 'ai-koyabu',
+          scores: { p1: 0, p2: 40 },
+          shocks: { p1: 0, p2: 0 },
+          logs: [],
+        }),
+      }),
+      saveMatch({
+        body: JSON.stringify({
+          matchId: 'test-concurrent-2',
+          player1Id: 'human',
+          player2Id: 'ai-koyabu',
+          winnerId: 'ai-koyabu',
+          scores: { p1: 0, p2: 40 },
+          shocks: { p1: 0, p2: 0 },
+          logs: [],
+        }),
+      }),
+    ]);
+
+    const after = await findPlayer('ai-koyabu');
+    expect(after.matchCount).toBe(before.matchCount + 2);
+    expect(after.winCount).toBe(before.winCount + 2);
+  });
+
+  it('does not overwrite an existing match record when a duplicate matchId is saved (matchId collision guard)', async () => {
+    const first = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-duplicate-matchid',
+        player1Id: 'ai-okano',
+        player2Id: 'ai-junior',
+        winnerId: 'ai-okano',
+        logs: [],
+      }),
+    });
+    expect(first.statusCode).toBe(200);
+
+    // 同一matchIdで別内容の試合を保存しようとしても、既存のレコードは上書きされない
+    const second = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-duplicate-matchid',
+        player1Id: 'ai-junior',
+        player2Id: 'ai-okano',
+        winnerId: 'ai-junior',
+        logs: [],
+      }),
+    });
+    expect(second.statusCode).toBe(200);
+
+    const result = await getMatchResult({ queryStringParameters: { matchId: 'test-duplicate-matchid' } });
+    const resultBody = JSON.parse(result.body);
+    expect(resultBody.match.winnerId).toBe('ai-okano');
   });
 
   it('should read players/matches from DynamoDB when data is already present', async () => {
@@ -664,10 +757,10 @@ describe('Backend Handler Specification Tests', () => {
       expect(body.shocks.p1).toBe(body.shocks.p2);
 
       // 引き分け時は両プレイヤーのレーティングがDynamoDBへ保存されていること
-      const playerPutCommands = dynamoSendMock.mock.calls
+      const playerUpdateCommands = dynamoSendMock.mock.calls
         .map(([command]) => command)
-        .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'PutCommand');
-      const savedPlayerIds = playerPutCommands.map((command) => command.input.Item.playerId).sort();
+        .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
+      const savedPlayerIds = playerUpdateCommands.map((command) => command.input.Key.playerId).sort();
       expect(savedPlayerIds).toEqual(['ai-koyabu', 'ai-nash']);
     } finally {
       randomSpy.mockRestore();
