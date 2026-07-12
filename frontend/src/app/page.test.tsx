@@ -1427,4 +1427,86 @@ describe('Home Component', () => {
 
     expect(preventDefaultSpy).toHaveBeenCalled();
   });
+
+  it('shows the AI reasoning bubble after a turn resolves when the API provides one', async () => {
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('ai-move')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ chosenChair: 1, setChairs: [2], reasoning: 'ここは絶対安全なはず。' })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/ここは絶対安全なはず。/)[0]).toBeDefined();
+    });
+  });
+
+  it('does not show a reasoning bubble when the AI move API omits one (e.g. offline fallback)', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText(/電流を仕掛ける椅子を選んでください/)[0]).toBeDefined();
+    });
+
+    const chairBtns = screen.getAllByRole('button').filter(b => b.textContent?.includes('#2'));
+    fireEvent.click(chairBtns[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('次のターンへ')[0]).toBeDefined();
+    });
+    expect(screen.queryByText(/🗯️/)).toBeNull();
+  });
+
+  it('shows saved AI reasoning for each turn in the past scoreboards list', async () => {
+    global.fetch = vi.fn((url: string | Request | URL) => {
+      const urlStr = url.toString();
+      if (urlStr.includes('get-matches')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            matches: [{
+              matchId: 'match-human-reasoning-1',
+              player1Id: 'human',
+              player2Id: 'ai-okano',
+              winnerId: 'human',
+              ratingDiff: 10,
+              createdAt: new Date().toISOString(),
+              logs: [
+                { turn: 1, isHumanSetter: true, chosenChair: 1, isShocked: false, remainingChairs: [2, 3, 4, 5], scores: { p1: 0, p2: 1 }, shocks: { p1: 0, p2: 0 }, reasoning: '安全な椅子を選びました。' }
+              ]
+            }]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /過去のスコアボード一覧/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/安全な椅子を選びました。/)).toBeDefined();
+    });
+  });
 });
