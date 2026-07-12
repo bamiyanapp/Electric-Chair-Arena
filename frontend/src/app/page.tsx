@@ -11,6 +11,25 @@ let hasWarnedMissingApiUrl = false;
 // プレイヤーに明示するためのバナー文言。
 const OFFLINE_FALLBACK_MESSAGE = 'オフラインモード: バックエンドに接続できないため、ランダムAIと対戦しています。';
 
+// ルール説明モーダル・ゲーム内サマリーで使う説明文。数値はGAME_RULESから
+// 都度埋め込むため、rules.tsの値と乖離しない。
+const RULE_DESCRIPTIONS = [
+  `${GAME_RULES.TOTAL_CHAIRS}脚の椅子が円形に並んでいます。交互に「電流を仕掛ける」側と「座る椅子を選ぶ」側を担当します。`,
+  `安全な椅子を選んだ場合、その椅子番号の点数を獲得します。先に${GAME_RULES.WINNING_SCORE}点を取ったプレイヤーの勝利です。`,
+  `電流が仕掛けられた椅子を選んでしまうと感電し、スコアが0にリセットされます。${GAME_RULES.MAX_SHOCKS}回感電すると敗北です。`,
+  `残り椅子が${GAME_RULES.MIN_CHAIRS_TO_END}脚になった時点で試合終了。得点が高い方が勝ち、同点なら感電回数が少ない方が勝ち、それも同じなら引き分けです。`,
+];
+
+// 対戦相手選択・プレイヤー一覧でAIの性格・戦略を一言で伝えるための説明文。
+const AI_DESCRIPTIONS: Record<string, string> = {
+  'ai-okano': 'ギャンブラータイプ。高得点を狙って大胆に椅子を仕掛けてくる。',
+  'ai-koyabu': '安全志向タイプ。リスクの低い椅子を堅実に選ぶ。',
+  'ai-junior': '心理戦タイプ。相手の裏を読んで逆を突いてくる。',
+  'ai-random': '完全ランダムに椅子を選ぶ、無戦略のAI。',
+  'ai-rule-based': '期待値計算に基づき合理的にプレイするAI。',
+  'ai-nash': 'ナッシュ均衡に基づく理論上の最適プレイを行うAI。',
+};
+
 // NEXT_PUBLIC_API_URLが未設定の場合、開発用のlocalhostへ静かにフォールバック
 // すると本番ビルドでAPI呼び出しが全て失敗する事故に気づきにくいため、
 // 未設定時は一度だけ警告を出す。
@@ -487,6 +506,7 @@ export function HomeContent() {
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   // リロード等で失われた進行中の試合をsessionStorageから復元できる場合に保持する
   const [resumableMatch, setResumableMatch] = useState<MatchResult | null>(null);
+  const [showRulesModal, setShowRulesModal] = useState(false);
 
   // 人間対AIモードでの演出管理ステート
   const [gameStep, setGameStep] = useState<'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT'>('IDLE');
@@ -1096,6 +1116,22 @@ export function HomeContent() {
           </div>
         </div>
       )}
+      {showRulesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowRulesModal(false)}>
+          <div className="bg-white rounded-xl shadow-lg p-6 max-w-md w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-gray-900">ルール説明</h3>
+              <button onClick={() => setShowRulesModal(false)} aria-label="閉じる" className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <ul className="space-y-3 text-sm text-gray-700 text-left list-disc list-inside">
+              {RULE_DESCRIPTIONS.map((text, i) => (
+                <li key={i}>{text}</li>
+              ))}
+            </ul>
+            <button onClick={() => setShowRulesModal(false)} className="w-full px-4 py-2 bg-blue-600 text-white font-bold rounded-md hover:bg-blue-700">閉じる</button>
+          </div>
+        </div>
+      )}
       <div className="max-w-4xl mx-auto space-y-4 sm:space-y-8">
         {/* 対戦中・対戦結果が表示されている間（対戦開始後）はヘッダーをカットする */}
         {!isGameActive && (
@@ -1112,6 +1148,9 @@ export function HomeContent() {
 
         {currentView === 'LOBBY' && (
           <div className="space-y-6">
+            <div className="text-center">
+              <button onClick={() => setShowRulesModal(true)} className="text-sm text-blue-600 hover:underline font-medium">📖 ルール説明</button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button onClick={() => setCurrentView('GAME')} className="p-6 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition">
                 <h3 className="text-xl font-bold mb-2">人間対AI</h3>
@@ -1139,6 +1178,9 @@ export function HomeContent() {
                     <div className="font-bold">{p.name}</div>
                     <div className="text-sm text-gray-600">Type: {p.type}</div>
                     <div className="text-sm text-gray-600">Rate: {p.rating}</div>
+                    {AI_DESCRIPTIONS[p.playerId] && (
+                      <div className="text-xs text-gray-500 mt-1">{AI_DESCRIPTIONS[p.playerId]}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1333,6 +1375,10 @@ export function HomeContent() {
                       <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
                         第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
                       </span>
+                      <span className="text-xs text-gray-500">
+                        {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+                        (P1あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点 / P2あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p2)}点)
+                      </span>
                     </div>
 
                     <ChairBoard
@@ -1450,6 +1496,9 @@ export function HomeContent() {
                         <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
                       ))}
                     </select>
+                    {AI_DESCRIPTIONS[player2Id] && (
+                      <p className="text-xs text-gray-500 mt-2">{AI_DESCRIPTIONS[player2Id]}</p>
+                    )}
                   </div>
                 </div>
               </>
@@ -1517,6 +1566,10 @@ export function HomeContent() {
                     <div className="mb-4">
                       <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
                         第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+                        (あなた: あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点)
                       </span>
                     </div>
 

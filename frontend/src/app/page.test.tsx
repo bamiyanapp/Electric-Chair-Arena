@@ -1509,4 +1509,48 @@ describe('Home Component', () => {
       expect(screen.getByText(/安全な椅子を選びました。/)).toBeDefined();
     });
   });
+
+  it('opens and closes the rules modal from the lobby', async () => {
+    render(<HomeContent />);
+
+    fireEvent.click(screen.getByRole('button', { name: '📖 ルール説明' }));
+    await waitFor(() => {
+      expect(screen.getByText('ルール説明')).toBeDefined();
+    });
+    expect(screen.getByText(/先に10点を取ったプレイヤーの勝利です/)).toBeDefined();
+
+    fireEvent.click(screen.getAllByRole('button', { name: '閉じる' })[0]);
+    await waitFor(() => {
+      expect(screen.queryByText('ルール説明')).toBeNull();
+    });
+  });
+
+  it('shows an AI description in the lobby player list and the opponent select', async () => {
+    render(<HomeContent />);
+
+    await waitFor(() => {
+      expect(screen.getByText('岡野陽一風AI')).toBeDefined();
+    });
+    expect(screen.getAllByText(/ギャンブラータイプ/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    expect(screen.getAllByText(/安全志向タイプ|心理戦タイプ|ギャンブラータイプ|完全ランダム|期待値計算|ナッシュ均衡/).length).toBeGreaterThan(0);
+  });
+
+  it('shows the winning-score/shock-limit summary and remaining points during a human-vs-AI match', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+    });
+    fireEvent.click(screen.getAllByText('対戦開始')[0]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/10点先取 \/ 感電2回で敗北/)[0]).toBeDefined();
+      expect(screen.getAllByText(/あなた: あと10点/)[0]).toBeDefined();
+    });
+  });
 });
