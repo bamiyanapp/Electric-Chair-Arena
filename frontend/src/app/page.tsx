@@ -777,12 +777,21 @@ export function HomeContent() {
   // 人間対AI戦を開始する。「対戦開始」ボタンと、結果画面の「同じ相手と再戦」の
   // 両方から呼ばれる共通処理。
   const startHumanMatch = (opponentId: string) => {
+    const opponent = players.find(p => p.playerId === opponentId);
+    if (!opponent) {
+      // プレイヤー一覧の取得が完了する前に対戦開始が押された場合等、
+      // opponentIdがまだ有効なプレイヤーを指していないケースのガード。
+      // ここで弾かないとmatchResult.player2がundefinedのまま保存され、
+      // 描画時にクラッシュしてしまう。
+      setError('対戦相手の情報を読み込み中です。少し待ってから再度お試しください。');
+      return;
+    }
     setLoading(true);
     setMatchResult({
       matchId: `match-human-${crypto.randomUUID()}`,
       mode: 'human',
       player1: { playerId: 'human', name: 'あなた (人間)', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
-      player2: players.find(p => p.playerId === opponentId)!,
+      player2: opponent,
       winner: '',
       ratingDiff: 0,
       scores: { p1: 0, p2: 0 },
@@ -1620,7 +1629,7 @@ export function HomeContent() {
               <div className="mt-8 flex justify-center">
                 <button
                   onClick={() => startHumanMatch(player2Id)}
-                  disabled={loading}
+                  disabled={loading || !players.some(p => p.playerId === player2Id)}
                   className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
                 >
                   {loading ? '対戦準備中...' : '対戦開始'}

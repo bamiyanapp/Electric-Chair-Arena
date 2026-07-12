@@ -1465,6 +1465,21 @@ describe('Home Component', () => {
     expect(screen.getAllByText('人間対AI')[0]).toBeDefined();
   });
 
+  it('disables the start button until the opponent list has loaded, and enables it once ready', async () => {
+    render(<HomeContent />);
+    fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
+
+    // 対戦相手一覧(players/player2Id)のfetchはuseEffect内の非同期処理のため、
+    // ここではまだ解決していない。この時点でボタンが押せてしまうと、
+    // startHumanMatchがplayers.find(...)でundefinedを返しクラッシュする。
+    const startBtn = screen.getAllByText('対戦開始')[0];
+    expect(startBtn.hasAttribute('disabled')).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('対戦開始')[0].hasAttribute('disabled')).toBe(false);
+    });
+  });
+
   it('keeps the player in the active match when leaving via "ロビーへ戻る" is cancelled', async () => {
     window.confirm = vi.fn().mockReturnValue(false);
 
