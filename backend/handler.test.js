@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createRequire } from 'module';
 import Module from 'module';
+import { GAME_RULES } from './rules.js';
 
 // handler.js内部のrequire('./dynamoClient.js')はCJSのrequireで読み込まれるため、
 // commentary.test.jsと同様にvi.mockではインターセプトできない。
@@ -293,6 +294,85 @@ describe('Backend Handler Specification Tests', () => {
     it('ai-rule-based sets traps with probability proportional to chair value, instead of always the single highest chair', async () => {
       const setChairs = await sampleSetChairs('ai-rule-based');
       expect(new Set(setChairs).size).toBeGreaterThan(1);
+    });
+  });
+
+  // issue #161: /ai-moveに対局状態(スコア・感電回数)を渡すことで、
+  // 明白な局面(あと1回の感電で敗北/安全策で逃げ切れば勝利)でAIの選択が
+  // 実際に変化することを検証する。
+  describe('ai-move considers match state (score/shocks) when provided (issue #161)', () => {
+    it('rejects non-integer or negative selfScore/opponentScore/selfShocks/opponentShocks', async () => {
+      const resNegative = await getAiMove({
+        body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'choose', remainingChairs: [1, 2], selfScore: -1 })
+      });
+      expect(resNegative.statusCode).toBe(400);
+
+      const resNonInteger = await getAiMove({
+        body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'choose', remainingChairs: [1, 2], opponentShocks: 1.5 })
+      });
+      expect(resNonInteger.statusCode).toBe(400);
+    });
+
+    it('falls back to the state-agnostic logic when match state is omitted (backward compatible)', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'choose', remainingChairs: [1, 2, 3] })
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).chosenChair).toBeGreaterThanOrEqual(1);
+    });
+
+    it('ai-nash choosing a chair no longer favors the highest value once it already has enough to win with a much lower one', async () => {
+      // selfScoreが38(勝利まであと2点)の場合、椅子3も椅子12も「勝つのに
+      // 十分」という点で実効価値が同じ(2に切り詰められる)はずなので、
+      // 対局状態を考慮しない場合は99%以上椅子12に偏るところ、
+      // 椅子3が無視できない頻度で選ばれるようになるはず。
+      let chair3Count = 0;
+      const trials = 40;
+      for (let i = 0; i < trials; i++) {
+        const res = await getAiMove({
+          body: JSON.stringify({
+            aiPlayerId: 'ai-nash', role: 'choose', remainingChairs: [3, 12], selfScore: 38,
+          })
+        });
+        if (JSON.parse(res.body).chosenChair === 3) chair3Count++;
+      }
+      expect(chair3Count / trials).toBeGreaterThan(0.25);
+    });
+
+    it('ai-nash setting a trap switches to "kill mode" reasoning when the opponent is one shock away from losing', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({
+          aiPlayerId: 'ai-nash', role: 'set', remainingChairs: [1, 2, 3, 4, 5],
+          opponentShocks: GAME_RULES.MAX_SHOCKS - 1,
+        })
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).reasoning).toContain('あと1回の感電で敗北');
+    });
+
+    it('ai-rule-based choosing a chair no longer favors the highest value once it already has enough to win with a much lower one', async () => {
+      let chair3Count = 0;
+      const trials = 200;
+      for (let i = 0; i < trials; i++) {
+        const res = await getAiMove({
+          body: JSON.stringify({
+            aiPlayerId: 'ai-rule-based', role: 'choose', remainingChairs: [3, 12], selfScore: 38,
+          })
+        });
+        if (JSON.parse(res.body).chosenChair === 3) chair3Count++;
+      }
+      expect(chair3Count / trials).toBeGreaterThan(0.3);
+    });
+
+    it('ai-rule-based setting a trap switches to "kill mode" reasoning when the opponent is one shock away from losing', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({
+          aiPlayerId: 'ai-rule-based', role: 'set', remainingChairs: [1, 2, 3, 4, 5],
+          opponentShocks: GAME_RULES.MAX_SHOCKS - 1,
+        })
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).reasoning).toContain('仕留めることを優先');
     });
   });
 

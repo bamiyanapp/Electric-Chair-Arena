@@ -636,7 +636,15 @@ export function HomeContent() {
   // バックエンドに到達できない場合は無戦略の完全ランダムにフォールバックする。
   // 選択したAIとは無関係な相手と対戦していることを呼び出し元がUIに示せるよう、
   // isFallbackで区別できるようにする。
-  const getAiMoveMock = async (aiPlayerId: string, role: string, remainingChairs: number[]) => {
+  // matchState(スコア・感電回数)はAI自身(player2)から見た視点で渡す。
+  // バックエンド側は未指定でも動作するため、呼び出し元がmatchResultを
+  // 持たない場合(通常は無い)は省略してもよい。
+  const getAiMoveMock = async (
+    aiPlayerId: string,
+    role: string,
+    remainingChairs: number[],
+    matchState?: { selfScore: number; opponentScore: number; selfShocks: number; opponentShocks: number }
+  ) => {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
       // 現状はバックエンドと結合していないためモックのままにするか、直接実装する
@@ -647,7 +655,7 @@ export function HomeContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ aiPlayerId, role, remainingChairs })
+        body: JSON.stringify({ aiPlayerId, role, remainingChairs, ...matchState })
       });
       if (res.ok) {
         return { ...(await res.json()), isFallback: false };
@@ -1080,7 +1088,12 @@ export function HomeContent() {
         await sleep(1500);
         if (matchTokenRef.current !== token) return;
 
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs);
+        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, {
+          selfScore: matchResult.scores.p2,
+          opponentScore: matchResult.scores.p1,
+          selfShocks: matchResult.shocks.p2,
+          opponentShocks: matchResult.shocks.p1,
+        });
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
@@ -1117,7 +1130,12 @@ export function HomeContent() {
         await sleep(1500);
         if (matchTokenRef.current !== token) return;
 
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs);
+        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, {
+          selfScore: matchResult.scores.p2,
+          opponentScore: matchResult.scores.p1,
+          selfShocks: matchResult.shocks.p2,
+          opponentShocks: matchResult.shocks.p1,
+        });
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
