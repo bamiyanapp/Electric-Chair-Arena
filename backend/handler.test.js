@@ -223,6 +223,79 @@ describe('Backend Handler Specification Tests', () => {
     expect(resError.statusCode).toBe(500);
   });
 
+  // issue #160: キャラクターAIの「選ぶ」/「仕掛ける」ロジックが完全決定的で、
+  // 数ターンで人間に読み切られてしまっていた問題の回帰テスト。
+  // 各AIについて、単一の値に固定されないこと(乱択が効いていること)と、
+  // 性格に見合った偏り(重み付け)が統計的に確認できることを検証する。
+  describe('personality AI choices are weighted-random rather than fully deterministic (issue #160)', () => {
+    const ALL_CHAIRS = Array.from({ length: 12 }, (_, i) => i + 1);
+    const SAMPLE_SIZE = 300;
+
+    async function sampleChosenChairs(aiPlayerId, remainingChairs = ALL_CHAIRS) {
+      const chosen = [];
+      for (let i = 0; i < SAMPLE_SIZE; i++) {
+        const res = await getAiMove({
+          body: JSON.stringify({ aiPlayerId, role: 'choose', remainingChairs })
+        });
+        chosen.push(JSON.parse(res.body).chosenChair);
+      }
+      return chosen;
+    }
+
+    async function sampleSetChairs(aiPlayerId, remainingChairs = ALL_CHAIRS) {
+      const chosen = [];
+      for (let i = 0; i < SAMPLE_SIZE; i++) {
+        const res = await getAiMove({
+          body: JSON.stringify({ aiPlayerId, role: 'set', remainingChairs })
+        });
+        chosen.push(JSON.parse(res.body).setChairs[0]);
+      }
+      return chosen;
+    }
+
+    it('ai-okano favors high-value chairs when choosing, but is not always the max (occasional wildcard gamble)', async () => {
+      const chosen = await sampleChosenChairs('ai-okano');
+      expect(new Set(chosen).size).toBeGreaterThan(1);
+      const average = chosen.reduce((a, b) => a + b, 0) / chosen.length;
+      expect(average).toBeGreaterThan(8);
+      // 一様ランダム(15%)の博打枠があるため、低得点椅子が選ばれることもある
+      expect(chosen.some(c => c <= 4)).toBe(true);
+    });
+
+    it('ai-koyabu favors low-value chairs when choosing, but is not always the exact minimum', async () => {
+      const chosen = await sampleChosenChairs('ai-koyabu');
+      expect(new Set(chosen).size).toBeGreaterThan(1);
+      const average = chosen.reduce((a, b) => a + b, 0) / chosen.length;
+      expect(average).toBeLessThan(5);
+    });
+
+    it('ai-junior favors chairs near the median when choosing, avoiding both extremes', async () => {
+      const chosen = await sampleChosenChairs('ai-junior');
+      expect(new Set(chosen).size).toBeGreaterThan(1);
+      const extremeRatio = chosen.filter(c => c <= 2 || c >= 11).length / chosen.length;
+      expect(extremeRatio).toBeLessThan(0.2);
+    });
+
+    it('ai-rule-based chooses chairs with probability proportional to their value, not a fixed median', async () => {
+      const chosen = await sampleChosenChairs('ai-rule-based');
+      expect(new Set(chosen).size).toBeGreaterThan(1);
+      const average = chosen.reduce((a, b) => a + b, 0) / chosen.length;
+      expect(average).toBeGreaterThan(6.5);
+    });
+
+    it('ai-junior sets traps near the median instead of a uniformly random position (differentiated from ai-random)', async () => {
+      const setChairs = await sampleSetChairs('ai-junior');
+      expect(new Set(setChairs).size).toBeGreaterThan(1);
+      const extremeRatio = setChairs.filter(c => c <= 2 || c >= 11).length / setChairs.length;
+      expect(extremeRatio).toBeLessThan(0.2);
+    });
+
+    it('ai-rule-based sets traps with probability proportional to chair value, instead of always the single highest chair', async () => {
+      const setChairs = await sampleSetChairs('ai-rule-based');
+      expect(new Set(setChairs).size).toBeGreaterThan(1);
+    });
+  });
+
   it('should reject getAiMove with an invalid remainingChairs/role (regression test for NaN/crash on empty array)', async () => {
     const resEmptyChairs = await getAiMove({
       body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: [] })

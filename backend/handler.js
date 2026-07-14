@@ -270,6 +270,39 @@ module.exports.getMatchResult = async (event) => {
   };
 };
 
+// 岡野AIが座る側で、高得点椅子を狙うセオリーを無視して完全ランダムに
+// 全ツッパする「一発狙いの博打」を選ぶ確率。
+const OKANO_CHOOSE_WILDCARD_PROB = 0.15;
+
+// 重み関数に従って要素から確率的に1つを選ぶ。weightFnは各要素に対して
+// 0以上の重みを返す必要がある。合計が0以下の場合は一様ランダムに
+// フォールバックする。
+function weightedRandomChoice(items, weightFn) {
+  const weights = items.map(weightFn);
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  if (total <= 0) {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+  let r = Math.random() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return items[i];
+  }
+  return items[items.length - 1];
+}
+
+// 重み関数に従って、重複無しでcount個を確率的に選ぶ。
+function weightedSampleWithoutReplacement(items, weightFn, count) {
+  const pool = [...items];
+  const result = [];
+  while (result.length < count && pool.length > 0) {
+    const pick = weightedRandomChoice(pool, weightFn);
+    result.push(pick);
+    pool.splice(pool.indexOf(pick), 1);
+  }
+  return result;
+}
+
 // AIの行動と思考
 function computeAiMove(playerId, role, remainingChairs) {
   // ナッシュ均衡AIは共通ロジックを使用
@@ -306,14 +339,18 @@ function computeAiMove(playerId, role, remainingChairs) {
         reasoning = `「残った選択肢から考えて、ここが最も論理的な罠の位置ですわ。」`;
       }
     } else if (playerId === 'ai-junior') {
-      // ジュニア：相手を翻弄する心理戦
-      setChairs = shuffled.slice(0, numToSet);
-      reasoning = `「ええか、相手はさっき俺が低い数字を狙ったのを見てるわけやん？やから今度は絶対に高い数字に逃げよる。ここを読めるかどうかがこのゲームのすべてやな。」`;
+      // ジュニア：座る側と同じく、両極端を避けた中央値寄りの重みで
+      // 仕掛ける位置を選ぶ(以前はai-randomと全く同じ実装だった)
+      const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
+      const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
+      setChairs = weightedSampleWithoutReplacement(remainingChairs, c => 1 / (1 + (c - median) ** 2), numToSet);
+      reasoning = `「ええか、両極端に逃げる奴はすぐ底が知れる。読み合いの本質はド真ん中付近に潜んどるんや。」`;
     } else if (playerId === 'ai-rule-based') {
-      // 期待値計算：期待値が最も高い椅子、または確率的に相手が座りそうな椅子に配置
-      const sortedByPoints = [...remainingChairs].sort((a, b) => b - a);
-      setChairs = sortedByPoints.slice(0, numToSet);
-      reasoning = `「(計算機AI) 得点効率の高い順から電流を仕掛けることで、相手の期待利得を最大効率で低減させます。」`;
+      // 期待値計算：罠の位置は相手の設置傾向が不明なため、確実に狙われる
+      // 最高得点椅子に固定するのではなく、得点効率(=座られた場合の
+      // 相手利得)に比例した確率で仕掛ける
+      setChairs = weightedSampleWithoutReplacement(remainingChairs, c => c, numToSet);
+      reasoning = `「(計算機AI) 得点効率に比例した確率分布に基づき電流を仕掛けることで、相手の期待利得を効率的に低減させます。」`;
     } else {
       // ランダム
       setChairs = shuffled.slice(0, numToSet);
@@ -331,35 +368,36 @@ function computeAiMove(playerId, role, remainingChairs) {
     let reasoning = '';
 
     if (playerId === 'ai-okano') {
-      // 岡野：デカい当たり（高得点）に全ツッパ
-      const highChairs = remainingChairs.filter(c => c >= 8);
-      if (highChairs.length > 0) {
-        chosenChair = Math.max(...highChairs);
-        reasoning = `「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！12点座って一気に40点に近づいたる！」`;
-      } else {
+      // 岡野：基本は高得点椅子ほど選ばれやすい重みで狙うが、性格に見合った
+      // 博打として一定確率でセオリーを無視した全ランダム選択を混ぜる
+      // (以前は高得点椅子があれば必ずその最大値を選ぶ完全決定的な実装で、
+      // 数ターンで座る位置を読み切られてしまっていた)
+      if (Math.random() < OKANO_CHOOSE_WILDCARD_PROB) {
         chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
-        reasoning = `「もう残りのどれでも一緒や！俺の右手が座れと叫んでる！」`;
+        reasoning = `「たまにはセオリー無視や！ここは直感一本、椅子${chosenChair}に全部賭ける！」`;
+      } else {
+        chosenChair = weightedRandomChoice(remainingChairs, c => c * c);
+        reasoning = `「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！椅子${chosenChair}で一気に40点に近づいたる！」`;
       }
     } else if (playerId === 'ai-koyabu') {
-      // 小籔：安全第一、感電リスクを嫌う
-      const lowChairs = remainingChairs.filter(c => c <= 6);
-      if (lowChairs.length > 0) {
-        chosenChair = Math.min(...lowChairs);
-        reasoning = `「高得点は魅力やけど、そこに電流仕掛けられて感電してライフ削られるのは一番あきません。低得点で安全な椅子から丁寧にいきまっせ。」`;
-      } else {
-        chosenChair = Math.min(...remainingChairs);
-        reasoning = `「最も罠が仕掛けられにくい、一番値の低い椅子を選択するのが最善手です。」`;
-      }
+      // 小籔：低得点椅子ほど選ばれやすい重みで、安全志向を保ちつつ
+      // 完全には決定的にしない
+      const maxChair = Math.max(...remainingChairs);
+      chosenChair = weightedRandomChoice(remainingChairs, c => (maxChair - c + 1) ** 2);
+      reasoning = `「高得点は魅力やけど、そこに電流仕掛けられて感電してライフ削られるのは一番あきません。低得点で安全そうな椅子${chosenChair}から丁寧にいきまっせ。」`;
     } else if (playerId === 'ai-junior') {
-      // ジュニア：ブラフの裏をかく
-      const sorted = [...remainingChairs].sort((a, b) => b - a);
-      chosenChair = sorted[Math.floor(sorted.length / 2)] || remainingChairs[0];
-      reasoning = `「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中、一番心理的に狙いにくい位置がド本命や。」`;
+      // ジュニア：両極端を避け、中央値付近ほど選ばれやすい重みで選ぶ
+      const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
+      const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
+      chosenChair = weightedRandomChoice(remainingChairs, c => 1 / (1 + (c - median) ** 2));
+      reasoning = `「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中付近、椅子${chosenChair}が一番心理的に狙われにくい位置や。」`;
     } else if (playerId === 'ai-rule-based') {
-      // 最も期待値の高い選択肢
-      const sorted = [...remainingChairs].sort((a, b) => b - a);
-      chosenChair = sorted[Math.floor(sorted.length / 2)] || remainingChairs[0];
-      reasoning = `「期待値と安全性を加味した最適解となる中間位のシート ${chosenChair} を選択。」`;
+      // 期待値計算：罠の位置は相手の設置傾向が不明なため残り椅子に
+      // 一様分布すると仮定すると、生存確率はどの椅子を選んでも同じに
+      // なり、期待値は得点に比例する。よって常に最高得点椅子を選ぶ
+      // のではなく、得点に比例した確率で選ぶ
+      chosenChair = weightedRandomChoice(remainingChairs, c => c);
+      reasoning = `「(計算機AI) 罠の位置は不明なため一様分布と仮定し、得点期待値に比例した確率でシート${chosenChair}を選択。」`;
     } else {
       chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
       reasoning = `「ランダムに椅子 ${chosenChair} を選択します。」`;
