@@ -185,7 +185,7 @@ module.exports.getLeaderboard = async () => {
 module.exports.getAiMove = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { aiPlayerId, role, remainingChairs } = body;
+    const { aiPlayerId, role, remainingChairs, selfScore, opponentScore, selfShocks, opponentShocks } = body;
 
     if (!aiPlayerId || !role || !remainingChairs) {
       return {
@@ -208,7 +208,19 @@ module.exports.getAiMove = async (event) => {
       };
     }
 
-    const move = computeAiMove(aiPlayerId, role, remainingChairs);
+    // 対局状態(スコア・感電回数)は任意項目。省略した呼び出し元に対しては
+    // 従来通り状態非依存のロジックにフォールバックする(computeAiMove側の
+    // デフォルト値による)ため、ここでは指定された場合のみ形式を検証する。
+    const isValidOptionalNonNegativeInt = (v) => v === undefined || (Number.isInteger(v) && v >= 0);
+    if (![selfScore, opponentScore, selfShocks, opponentShocks].every(isValidOptionalNonNegativeInt)) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'selfScore/opponentScore/selfShocks/opponentShocks must be non-negative integers if provided' }),
+      };
+    }
+
+    const move = computeAiMove(aiPlayerId, role, remainingChairs, { selfScore, opponentScore, selfShocks, opponentShocks });
 
     return {
       statusCode: 200,
@@ -303,11 +315,14 @@ function weightedSampleWithoutReplacement(items, weightFn, count) {
   return result;
 }
 
-// AIの行動と思考
-function computeAiMove(playerId, role, remainingChairs) {
+// AIの行動と思考。matchState(スコア・感電回数)は任意で、省略時(undefined)は
+// 各AIとも従来通り状態非依存のロジックにフォールバックする。
+function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
+  const { selfScore = 0, opponentScore = 0, opponentShocks = 0 } = matchState;
+
   // ナッシュ均衡AIは共通ロジックを使用
   if (playerId === 'ai-nash') {
-    return getNashMove(playerId, role, remainingChairs);
+    return getNashMove(playerId, role, remainingChairs, matchState);
   }
 
   if (role === 'set') {
@@ -346,11 +361,21 @@ function computeAiMove(playerId, role, remainingChairs) {
       setChairs = weightedSampleWithoutReplacement(remainingChairs, c => 1 / (1 + (c - median) ** 2), numToSet);
       reasoning = `「ええか、両極端に逃げる奴はすぐ底が知れる。読み合いの本質はド真ん中付近に潜んどるんや。」`;
     } else if (playerId === 'ai-rule-based') {
-      // 期待値計算：罠の位置は相手の設置傾向が不明なため、確実に狙われる
-      // 最高得点椅子に固定するのではなく、得点効率(=座られた場合の
-      // 相手利得)に比例した確率で仕掛ける
-      setChairs = weightedSampleWithoutReplacement(remainingChairs, c => c, numToSet);
-      reasoning = `「(計算機AI) 得点効率に比例した確率分布に基づき電流を仕掛けることで、相手の期待利得を効率的に低減させます。」`;
+      // 期待値計算：相手があと1回の感電で敗北する場合は、得点効率を無視して
+      // 選ばれやすさが均等な椅子から仕留めにいく(相手の設置傾向と同様、
+      // 相手がどの椅子を選ぶかも不明なため、一様に確率的な狙い撃ちとなる)。
+      // それ以外の場面では、罠の位置は相手の設置傾向が不明なため、確実に
+      // 狙われる最高得点椅子に固定するのではなく、相手の勝利に必要な
+      // 残り得点を超える価値は無いとみなした実効価値に比例した確率で仕掛ける。
+      const isKillMode = opponentShocks >= GAME_RULES.MAX_SHOCKS - 1;
+      if (isKillMode) {
+        setChairs = weightedSampleWithoutReplacement(remainingChairs, () => 1, numToSet);
+        reasoning = `「(計算機AI) 相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、確率的に狙い撃ちます。」`;
+      } else {
+        const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - opponentScore);
+        setChairs = weightedSampleWithoutReplacement(remainingChairs, c => Math.min(c, effectiveMax), numToSet);
+        reasoning = `「(計算機AI) 相手の勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率分布に基づき電流を仕掛けます。」`;
+      }
     } else {
       // ランダム
       setChairs = shuffled.slice(0, numToSet);
@@ -395,9 +420,12 @@ function computeAiMove(playerId, role, remainingChairs) {
       // 期待値計算：罠の位置は相手の設置傾向が不明なため残り椅子に
       // 一様分布すると仮定すると、生存確率はどの椅子を選んでも同じに
       // なり、期待値は得点に比例する。よって常に最高得点椅子を選ぶ
-      // のではなく、得点に比例した確率で選ぶ
-      chosenChair = weightedRandomChoice(remainingChairs, c => c);
-      reasoning = `「(計算機AI) 罠の位置は不明なため一様分布と仮定し、得点期待値に比例した確率でシート${chosenChair}を選択。」`;
+      // のではなく、自分の勝利に必要な残り得点を超える価値は無いと
+      // みなした実効価値に比例した確率で選ぶ(必要以上に高得点の椅子を
+      // 無理に狙いにいかない)
+      const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - selfScore);
+      chosenChair = weightedRandomChoice(remainingChairs, c => Math.min(c, effectiveMax));
+      reasoning = `「(計算機AI) 勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率でシート${chosenChair}を選択。」`;
     } else {
       chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
       reasoning = `「ランダムに椅子 ${chosenChair} を選択します。」`;
