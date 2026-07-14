@@ -2,4 +2,4 @@
 2:I[39756,["/Electric-Chair-Arena/_next/static/chunks/0sg-phu3__9p-.js"],"default"]
 3:I[37457,["/Electric-Chair-Arena/_next/static/chunks/0sg-phu3__9p-.js"],"default"]
 4:[]
-0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"_aI01DuK34UFWX9KkgTbi"}
+0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"fymGp3UM88WPdQLJTJVSh"}
