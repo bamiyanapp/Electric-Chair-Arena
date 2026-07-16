@@ -1,2 +1,2 @@
-:HL["/Electric-Chair-Arena/_next/static/chunks/1653i8cq5h2fu.css","style"]
-0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}},"staleTime":300,"buildId":"SGzymEJm_Zp9IA3UubFwr"}
+:HL["/Electric-Chair-Arena/_next/static/chunks/1laj5kd51drjg.css","style"]
+0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}},"staleTime":300,"buildId":"sUz9UFsVB30MY4K9anLwA"}
