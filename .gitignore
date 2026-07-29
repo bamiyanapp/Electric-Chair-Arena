@@ -5,17 +5,11 @@ yarn-debug.log*
 yarn-error.log*
 yarn.lock
 
-# Serverless
-.serverless/
-
 # Build outputs
 dist/
 build/
 out/
 */coverage/
-.next/
-next-env.d.ts
-*.tsbuildinfo
 
 # IDE
 .vscode/
@@ -30,12 +24,6 @@ Thumbs.db
 # Environment variables
 .env
 .env.*
-
-# Backup files
-backend/karuta-phrases-backup.json
-
-# Log files
-*.log
 
 # commit skill が下書きに使う一時ファイル
 commit_msg*.txt

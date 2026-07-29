@@ -1,0 +1,8 @@
+# Serverless
+.serverless/
+
+# Backup files
+karuta-phrases-backup.json
+
+# Log files
+*.log
