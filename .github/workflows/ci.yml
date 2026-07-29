@@ -13,10 +13,18 @@ permissions:
 
 jobs:
   ci:
-    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@main
+    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v1.13.0
     with:
+      frontend_dir: frontend
+      backend_dir: backend
       node_version: '24'
       enable_release: false
       workspaces: true
+      enable_standards_check: true
+      enable_duplication_check: true
+      coverage_threshold: 90
+      coverage_metrics: 'statements,functions,lines'
+      enable_mermaid_render: true
+      mermaid_doc_paths: "docs/architecture.md\nREADME.md"
     secrets:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
