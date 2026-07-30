@@ -330,8 +330,8 @@ function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
     const numToSet = getNumToSet(remainingChairs.length);
     const shuffled = [...remainingChairs].sort(() => 0.5 - Math.random());
     
-    let setChairs = [];
-    let reasoning = '';
+    let setChairs;
+    let reasoning;
 
     if (playerId === 'ai-okano') {
       // 岡野：あえて大きな数字（10,11,12）に仕掛けるか、裏をかいて1に仕掛けるギャンブル戦略
@@ -389,8 +389,8 @@ function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
     return { setChairs, reasoning };
   } else {
     // 子（選択）：椅子に座る
-    let chosenChair = remainingChairs[0];
-    let reasoning = '';
+    let chosenChair;
+    let reasoning;
 
     if (playerId === 'ai-okano') {
       // 岡野：基本は高得点椅子ほど選ばれやすい重みで狙うが、性格に見合った
