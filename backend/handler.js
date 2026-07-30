@@ -435,6 +435,10 @@ function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
   }
 }
 
+// 自己対戦ベンチマーク(benchmark.js)から対局状態を考慮した手を直接
+// 計算するために公開する(issue #166)。
+module.exports.computeAiMove = computeAiMove;
+
 module.exports.startMatch = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
