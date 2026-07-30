@@ -23,6 +23,15 @@ const fakeModule = new Module(genaiPath);
 fakeModule.exports = { GoogleGenAI: FakeGoogleGenAI };
 Module._cache[genaiPath] = fakeModule;
 
+// vitest.config.jsのfileParallelism:false設定下ではテストファイル間でNodeの
+// requireキャッシュ(モジュールレジストリ)が共有される。benchmark.test.jsが
+// (上記のモック差し込みより前に)先に./handler.jsをrequireしていた場合、
+// handler.js自体が実@google/genaiへ紐付いた状態のままキャッシュされてしまうため、
+// handler.jsのキャッシュエントリを明示的に削除し、モック差し込み後の内容で
+// 必ず再評価(再require)されるようにする。
+const handlerPath = requireFromHere.resolve('./handler.js');
+delete Module._cache[handlerPath];
+
 const { generateCommentary } = await import('./handler.js');
 
 beforeEach(() => {

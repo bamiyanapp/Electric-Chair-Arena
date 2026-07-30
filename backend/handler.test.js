@@ -8,6 +8,7 @@ import { GAME_RULES } from './rules.js';
 // そのため、handler.jsを読み込む前にNodeのrequireキャッシュへ直接モックを差し込む。
 const requireFromHere = createRequire(import.meta.url);
 const dynamoClientPath = requireFromHere.resolve('./dynamoClient.js');
+const handlerPath = requireFromHere.resolve('./handler.js');
 
 // PutCommand/GetCommand/ScanCommandを実際のDynamoDBのように状態を持ってエミュレートする
 // (書き込み直後に読み出しても反映されるようにするため。テーブルはmatchId/playerIdをキーとするMapで表現する)。
@@ -76,6 +77,14 @@ fakeDynamoClientModule.exports = {
   PLAYERS_TABLE: 'test-players-table',
 };
 Module._cache[dynamoClientPath] = fakeDynamoClientModule;
+
+// vitest.config.jsのfileParallelism:false設定下ではテストファイル間でNodeの
+// requireキャッシュ(モジュールレジストリ)が共有される。benchmark.test.jsが
+// (上記のモック差し込みより前に)先に./handler.jsをrequireしていた場合、
+// handler.js自体が実dynamoClient.jsへ紐付いた状態のままキャッシュされて
+// しまうため、handler.jsのキャッシュエントリを明示的に削除し、モック差し込み後の
+// 内容で必ず再評価(再require)されるようにする。
+delete Module._cache[handlerPath];
 
 const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } = await import('./handler.js');
 
