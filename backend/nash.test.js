@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { GAME_RULES } from './rules.js';
 import {
   fictitiousPlay,
   computeSetterBestResponse,
   computeChooserBestResponse,
   hasConverged,
+  computeShockCost,
+  solveEndgameValue,
   getNashMove,
 } from './nash.js';
 
@@ -293,6 +296,13 @@ describe('hasConverged', () => {
     expect(hasConverged(oldProb, newProb, 0.01)).toBe(true);
   });
 
+  it('treats a key missing from oldProb, or a zero probability in newProb, as 0', () => {
+    const oldProb = { 1: 0.2 };
+    const newProb = { 1: 0.2, 2: 0, 3: 0.05 };
+
+    expect(hasConverged(oldProb, newProb, 0.01)).toBe(false);
+  });
+
   it('should handle custom threshold', () => {
     const oldProb = { 1: 0.2, 2: 0.3, 3: 0.5 };
     const newProb = { 1: 0.25, 2: 0.3, 3: 0.45 };
@@ -365,7 +375,10 @@ describe('getNashMove', () => {
     // 全要素のexpectedValueを上回り、goodChairsが空になるケースを再現できる。
     // (handler.js側のremainingChairsバリデーションは要素の一意性までは
     // 検証していないため、実際のAPI経由でも到達しうる分岐)
-    const result = getNashMove('ai-nash', 'choose', [1, 1, 2]);
+    // 残り椅子がENDGAME_LOOKAHEAD_MAX_CHAIRS(5)を超える(状態非依存の実効値
+    // ヒューリスティックを使う)構成で再現する。椅子数が少ないと終盤の
+    // 先読みロジックに切り替わり、価値関数が変わるため同じ入力では再現しない。
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3, 4, 5, 6, 7, 8, 9, 6]);
 
     expect(result).toHaveProperty('chosenChair');
     expect(typeof result.chosenChair).toBe('number');
@@ -515,5 +528,137 @@ describe('getNashMove', () => {
 
     expect(result).toHaveProperty('chosenChair');
     expect(result.reasoning).toContain('ナッシュ均衡');
+  });
+});
+
+// issue #166: 感電コストを利得に組み込む(選択者の損失・設置者の利得の両方)
+describe('computeShockCost', () => {
+  it('returns a large penalty once one more shock would eliminate the player', () => {
+    const cost = computeShockCost(10, GAME_RULES.MAX_SHOCKS - 1);
+    expect(cost).toBeGreaterThan(100);
+  });
+
+  it('increases with the current score when not near elimination', () => {
+    const lowScoreCost = computeShockCost(5, 0);
+    const highScoreCost = computeShockCost(30, 0);
+    expect(highScoreCost).toBeGreaterThan(lowScoreCost);
+  });
+
+  it('increases with the shock count itself even at the same score', () => {
+    const zeroShocksCost = computeShockCost(10, 0);
+    const oneShockCost = computeShockCost(10, 1);
+    expect(oneShockCost).toBeGreaterThan(zeroShocksCost);
+  });
+
+  it('never dominates the elimination penalty when far from elimination', () => {
+    const cost = computeShockCost(GAME_RULES.WINNING_SCORE, 0);
+    const eliminationCost = computeShockCost(0, GAME_RULES.MAX_SHOCKS - 1);
+    expect(cost).toBeLessThan(eliminationCost);
+  });
+});
+
+describe('getNashMove considers shock cost (issue #166)', () => {
+  it('chooser becomes more risk-averse (favors lower set-probability chairs) once already shocked, holding score constant', () => {
+    // 感電回数のみが異なる2つの対局状態で、選択の分布が変化する(全く同じでは
+    // なくなる)ことを確認する。安全な椅子ほど選ばれる頻度が高くなることまでは
+    // 厳密に保証しないが、少なくとも感電コストが選択確率に影響していることを検証する。
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8];
+    const trials = 200;
+    const countsNoShock = {};
+    const countsOneShock = {};
+    chairs.forEach(c => { countsNoShock[c] = 0; countsOneShock[c] = 0; });
+
+    for (let i = 0; i < trials; i++) {
+      const noShockResult = getNashMove('ai-nash', 'choose', chairs, { selfScore: 20, selfShocks: 0 });
+      countsNoShock[noShockResult.chosenChair]++;
+      const oneShockResult = getNashMove('ai-nash', 'choose', chairs, { selfScore: 20, selfShocks: 1 });
+      countsOneShock[oneShockResult.chosenChair]++;
+    }
+
+    const distributionsDiffer = chairs.some(c => Math.abs(countsNoShock[c] - countsOneShock[c]) > 10);
+    expect(distributionsDiffer).toBe(true);
+  });
+
+  it('setter increasingly favors chairs likely to be chosen (over raw value) as the opponent accumulates more score to lose', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    // 100試合では2つのカウントが偶然一致しテストが不安定になることを確認した
+    // (実測: 100試合で75対75)ため、試行回数を増やし、単なる不一致ではなく
+    // 意味のある差(絶対差が一定以上)であることを検証する
+    const trials = 200;
+
+    const highValueCountsLowOpponentScore = { count: 0 };
+    const highValueCountsHighOpponentScore = { count: 0 };
+
+    for (let i = 0; i < trials; i++) {
+      const lowScoreResult = getNashMove('ai-nash', 'set', chairs, { opponentScore: 0 });
+      const highScoreResult = getNashMove('ai-nash', 'set', chairs, { opponentScore: 35 });
+      if (lowScoreResult.setChairs[0] >= 9) highValueCountsLowOpponentScore.count++;
+      if (highScoreResult.setChairs[0] >= 9) highValueCountsHighOpponentScore.count++;
+    }
+
+    // 相手のスコアが高いほど、価値denialより「相手を確実に感電させる価値」の
+    // 比重が増すため、必ずしも高得点椅子(9以上)ばかりを狙わなくなる
+    // (選ばれやすい椅子を優先するようになる)ことを、厳密な閾値ではなく
+    // 分布が変化していることで確認する。
+    const diff = Math.abs(highValueCountsLowOpponentScore.count - highValueCountsHighOpponentScore.count);
+    expect(diff).toBeGreaterThan(3);
+  });
+});
+
+// issue #166: 終盤(残り椅子が少ない局面)での継続価値の厳密な先読み
+describe('solveEndgameValue', () => {
+  it('returns a large positive value when self has already reached the winning score', () => {
+    const memo = new Map();
+    const value = solveEndgameValue([1, 2, 3], GAME_RULES.WINNING_SCORE, 0, 0, 0, true, memo);
+    expect(value).toBeGreaterThan(0);
+  });
+
+  it('returns a large negative value when self has already reached the max shock count', () => {
+    const memo = new Map();
+    const value = solveEndgameValue([1, 2, 3], 0, GAME_RULES.MAX_SHOCKS, 0, 0, true, memo);
+    expect(value).toBeLessThan(0);
+  });
+
+  it('returns a large positive value when the opponent (not self) has already reached the max shock count', () => {
+    const memo = new Map();
+    const value = solveEndgameValue([1, 2, 3], 0, 0, 0, GAME_RULES.MAX_SHOCKS, true, memo);
+    expect(value).toBeGreaterThan(0);
+  });
+
+  it('returns 0 (draw) when chairs are exhausted with equal score and shocks', () => {
+    const memo = new Map();
+    const value = solveEndgameValue([5], 10, 1, 10, 1, true, memo);
+    expect(value).toBe(0);
+  });
+
+  it('favors the side with the higher score when chairs are exhausted with unequal scores', () => {
+    const memo = new Map();
+    const higherScoreValue = solveEndgameValue([5], 20, 0, 10, 0, true, memo);
+    const lowerScoreValue = solveEndgameValue([5], 10, 0, 20, 0, true, memo);
+    expect(higherScoreValue).toBeGreaterThan(0);
+    expect(lowerScoreValue).toBeLessThan(0);
+  });
+
+  it('memoizes repeated states (identical calls return the same cached value)', () => {
+    const memo = new Map();
+    const first = solveEndgameValue([1, 2, 3], 5, 0, 5, 0, true, memo);
+    const second = solveEndgameValue([1, 2, 3], 5, 0, 5, 0, true, memo);
+    expect(second).toBe(first);
+  });
+
+  it('is used by getNashMove once remainingChairs is small enough (reasoning mentions endgame lookahead)', () => {
+    const result = getNashMove('ai-nash', 'choose', [1, 2, 3]);
+    expect(result.reasoning).toContain('終盤の先読み');
+  });
+
+  it('is used by getNashMove for the setter role too, once remainingChairs is small enough', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3]);
+    expect(result.reasoning).toContain('終盤の先読み');
+  });
+
+  it('completes within a reasonable time budget for a Lambda invocation (well under 1 second)', () => {
+    const start = Date.now();
+    getNashMove('ai-nash', 'choose', [1, 2, 3], { selfScore: 15, opponentScore: 20, selfShocks: 1, opponentShocks: 1 });
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 });

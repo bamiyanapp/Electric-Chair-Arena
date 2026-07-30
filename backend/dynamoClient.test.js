@@ -1,10 +1,20 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const requireFromHere = createRequire(import.meta.url);
 const modulePath = requireFromHere.resolve('./dynamoClient.js');
 
 describe('dynamoClient', () => {
+  // CIのbackend-testはカバレッジ計測の都合上`--no-isolate`付きで実行され、
+  // テストファイル間でNodeのrequireキャッシュが共有される。handler.test.js・
+  // seed.test.jsが(このファイルより先に実行された場合)dynamoClient.jsの
+  // フェイクをModule._cache(=requireFromHere.cache)へ差し込んだままにするため、
+  // このファイルの最初のテストが実行される前にも明示的にキャッシュを
+  // 削除し、実モジュールを確実に読み込ませる。
+  beforeEach(() => {
+    delete requireFromHere.cache[modulePath];
+  });
+
   afterEach(() => {
     delete requireFromHere.cache[modulePath];
     delete process.env.IS_OFFLINE;
