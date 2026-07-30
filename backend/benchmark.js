@@ -123,6 +123,10 @@ function runBenchmark(player1Id, player2Id, games) {
 
 // `node backend/benchmark.js` で直接実行した場合、ai-nashと他の各AIとの
 // 対戦成績を出力する(今後のAI強さ回帰確認に使う簡易レポート)。
+// CLIとして直接実行された場合のみ通るパスであり、benchmark.test.jsは
+// モジュールとしてrunBenchmarkをimportするだけなので通常のテストでは
+// 到達しない(カバレッジ計測から除外する)。
+/* v8 ignore start */
 if (require.main === module) {
   const opponents = ['ai-random', 'ai-okano', 'ai-koyabu', 'ai-junior', 'ai-rule-based'];
   const games = 300;
@@ -136,6 +140,7 @@ if (require.main === module) {
     );
   }
 }
+/* v8 ignore stop */
 
 module.exports = {
   simulateMatch,

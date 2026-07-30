@@ -296,6 +296,13 @@ describe('hasConverged', () => {
     expect(hasConverged(oldProb, newProb, 0.01)).toBe(true);
   });
 
+  it('treats a key missing from oldProb, or a zero probability in newProb, as 0', () => {
+    const oldProb = { 1: 0.2 };
+    const newProb = { 1: 0.2, 2: 0, 3: 0.05 };
+
+    expect(hasConverged(oldProb, newProb, 0.01)).toBe(false);
+  });
+
   it('should handle custom threshold', () => {
     const oldProb = { 1: 0.2, 2: 0.3, 3: 0.5 };
     const newProb = { 1: 0.25, 2: 0.3, 3: 0.45 };
@@ -608,6 +615,12 @@ describe('solveEndgameValue', () => {
     expect(value).toBeLessThan(0);
   });
 
+  it('returns a large positive value when the opponent (not self) has already reached the max shock count', () => {
+    const memo = new Map();
+    const value = solveEndgameValue([1, 2, 3], 0, 0, 0, GAME_RULES.MAX_SHOCKS, true, memo);
+    expect(value).toBeGreaterThan(0);
+  });
+
   it('returns 0 (draw) when chairs are exhausted with equal score and shocks', () => {
     const memo = new Map();
     const value = solveEndgameValue([5], 10, 1, 10, 1, true, memo);
@@ -631,6 +644,11 @@ describe('solveEndgameValue', () => {
 
   it('is used by getNashMove once remainingChairs is small enough (reasoning mentions endgame lookahead)', () => {
     const result = getNashMove('ai-nash', 'choose', [1, 2, 3]);
+    expect(result.reasoning).toContain('終盤の先読み');
+  });
+
+  it('is used by getNashMove for the setter role too, once remainingChairs is small enough', () => {
+    const result = getNashMove('ai-nash', 'set', [1, 2, 3]);
     expect(result.reasoning).toContain('終盤の先読み');
   });
 

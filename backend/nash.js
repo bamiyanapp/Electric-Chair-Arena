@@ -357,11 +357,9 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
         expectedValues[i] > expectedValues[chairs.indexOf(best)] ? c : best
       , chairs[0]);
 
-      reasoning = usedEndgameLookahead
-        ? `ナッシュ均衡分析（終盤の先読み）により、全ての椅子がゲームの値以下でした。` +
-          `最も期待値の高い椅子 ${chosenChair} を選択します。`
-        : `ナッシュ均衡分析により、全ての椅子がゲームの値 ${gameValue.toFixed(2)} 以下でした。` +
-          `最も期待値の高い椅子 ${chosenChair} を選択します。`;
+      reasoning =
+        `ナッシュ均衡分析により、全ての椅子がゲームの値 ${gameValue.toFixed(2)} 以下でした。` +
+        `最も期待値の高い椅子 ${chosenChair} を選択します。`;
     } else {
       // goodChairsから確率分布 chooseProb に従って選択
       const totalProb = goodChairs.reduce((sum, c) => sum + chooseProb[c], 0);
@@ -374,12 +372,14 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
           break;
         }
       }
+      /* v8 ignore start */
       if (!chosenChair) {
         // rand(<totalProb)からgoodChairs全件のchooseProbを引き切れば必ず0以下になるため、
         // ここには理論上到達しない。Math.random()の実際の出力範囲(検証済み)では
         // 浮動小数点誤差によっても到達しなかったが、想定外の入力に備えた安全策として残す。
         chosenChair = goodChairs[goodChairs.length - 1];
       }
+      /* v8 ignore stop */
 
       reasoning = usedEndgameLookahead
         ? `ナッシュ均衡分析（終盤の先読み）により、期待値の高い椅子から ${chosenChair} を選択しました。`
