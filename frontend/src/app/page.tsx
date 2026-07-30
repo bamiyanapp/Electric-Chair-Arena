@@ -66,6 +66,10 @@ type GameLog = {
   reasoning?: string;
 };
 
+// issue #167: AIへ渡す、人間(対戦相手)の観測済み行動履歴。
+type OpponentAction = { chosenChair: number; availableChairs: number[] };
+type OpponentHistory = { setterActions: OpponentAction[]; chooserActions: OpponentAction[] };
+
 type MatchResult = {
   matchId: string;
   mode: 'human' | 'pvp';
@@ -217,6 +221,33 @@ function getCurrentRemainingChairs(match: MatchResult): number[] {
   return match.logs.length > 0
     ? match.logs[match.logs.length - 1].remainingChairs
     : Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
+}
+
+// issue #167: matchResultの対戦ログから、人間(対戦相手)の観測済み行動履歴を
+// 構築する。AIは常にplayer2として対局するため、「人間=player1」の行動を
+// 抽出する。選択者の行動(座った椅子)は常に公開情報だが、設置者の行動
+// (罠を張った椅子)は感電しない限り明かされないため、isShockedの場合のみ
+// setterActionsへ加える。
+function buildOpponentHistory(match: MatchResult): OpponentHistory {
+  const setterActions: OpponentAction[] = [];
+  const chooserActions: OpponentAction[] = [];
+  const allChairs = Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
+
+  match.logs.forEach((log, i) => {
+    const availableChairsBeforeTurn = i === 0 ? allChairs : match.logs[i - 1].remainingChairs;
+    if (log.isHumanSetter) {
+      // 人間が設置者、AIが選択者だったターン: chosenChairはAIの選択。
+      // 感電した場合のみ、それが人間の罠の位置として明かされる。
+      if (log.isShocked) {
+        setterActions.push({ chosenChair: log.chosenChair, availableChairs: availableChairsBeforeTurn });
+      }
+    } else {
+      // AIが設置者、人間が選択者だったターン: chosenChairは人間の選択(常に公開情報)。
+      chooserActions.push({ chosenChair: log.chosenChair, availableChairs: availableChairsBeforeTurn });
+    }
+  });
+
+  return { setterActions, chooserActions };
 }
 
 // 勝敗判定。p1/p2どちらの視点でも同一ロジックを使えるよう、
@@ -639,11 +670,15 @@ export function HomeContent() {
   // matchState(スコア・感電回数)はAI自身(player2)から見た視点で渡す。
   // バックエンド側は未指定でも動作するため、呼び出し元がmatchResultを
   // 持たない場合(通常は無い)は省略してもよい。
+  // opponentHistory(issue #167)は対戦相手(人間)の観測済み行動履歴で、
+  // buildOpponentHistoryで構築する。バックエンド側はai-nash以外は無視し、
+  // 未指定でも動作するため省略可能。
   const getAiMoveMock = async (
     aiPlayerId: string,
     role: string,
     remainingChairs: number[],
-    matchState?: { selfScore: number; opponentScore: number; selfShocks: number; opponentShocks: number }
+    matchState?: { selfScore: number; opponentScore: number; selfShocks: number; opponentShocks: number },
+    opponentHistory?: OpponentHistory
   ) => {
     try {
       // APIエンドポイントのURL。開発環境と本番環境で切り替える必要があるかも
@@ -655,7 +690,7 @@ export function HomeContent() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ aiPlayerId, role, remainingChairs, ...matchState })
+        body: JSON.stringify({ aiPlayerId, role, remainingChairs, ...matchState, ...(opponentHistory ? { opponentHistory } : {}) })
       });
       if (res.ok) {
         return { ...(await res.json()), isFallback: false };
@@ -1093,7 +1128,7 @@ export function HomeContent() {
           opponentScore: matchResult.scores.p1,
           selfShocks: matchResult.shocks.p2,
           opponentShocks: matchResult.shocks.p1,
-        });
+        }, buildOpponentHistory(matchResult));
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');
@@ -1135,7 +1170,7 @@ export function HomeContent() {
           opponentScore: matchResult.scores.p1,
           selfShocks: matchResult.shocks.p2,
           opponentShocks: matchResult.shocks.p1,
-        });
+        }, buildOpponentHistory(matchResult));
         if (matchTokenRef.current !== token) return;
         setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
         playSound('/fix.mp3');

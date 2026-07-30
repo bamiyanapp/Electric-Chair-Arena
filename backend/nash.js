@@ -38,6 +38,12 @@ const ENDGAME_ITERATIONS = 200;
 // 先読みにおける勝敗確定を表す値(スコア差ベースの値を確実に上回る大きさ)。
 const ENDGAME_WIN_VALUE = 1000;
 
+// 相手の観測傾向(issue #167)を搾取側へ反映する信頼度が1(常に搾取側を採用)に
+// 達するまでに必要な観測件数。自己対戦ベンチマークで較正した値: 小さすぎると
+// 少数の観測(偶然の一致を含む)にも過剰反応し、大きすぎると観測が蓄積しても
+// 均衡プレイからほとんど動かず搾取の効果が実質無くなる。
+const OPPONENT_MODEL_CONFIDENCE_SATURATION_COUNT = 5;
+
 /**
  * Fictitious Play を実行し、混合戦略とゲームの値を返す
  *
@@ -163,6 +169,54 @@ function computeShockCost(score, shocks) {
 }
 
 /**
+ * 椅子chosenChairが、その時点の選択肢availableChairs内でどの程度「高い方」
+ * だったかを0(最低)〜1(最高)の相対順位として返す。
+ * 残り椅子は対局が進むごとに変化する(＝椅子の絶対番号だけでは終盤と序盤の
+ * 「高い椅子を好む」を同じ尺度で比較できない)ため、観測した過去の行動を
+ * 現在の残り椅子へ射影する際の共通の尺度として使う。
+ */
+function computeRelativeRank(chosenChair, availableChairs) {
+  const sorted = [...availableChairs].sort((a, b) => a - b);
+  const index = sorted.indexOf(chosenChair);
+  if (index < 0 || sorted.length <= 1) return 0.5;
+  return index / (sorted.length - 1);
+}
+
+/**
+ * 0(最低)〜1(最高)の相対順位rankを、現在の残り椅子currentChairsの中で
+ * 対応する位置の椅子番号へ射影する。
+ */
+function projectRankToChair(rank, currentChairs) {
+  const sorted = [...currentChairs].sort((a, b) => a - b);
+  if (sorted.length <= 1) return sorted[0];
+  const index = Math.round(rank * (sorted.length - 1));
+  return sorted[Math.min(sorted.length - 1, Math.max(0, index))];
+}
+
+/**
+ * 観測した相手の過去の行動履歴(actions)を、現在の残り椅子currentChairsへ
+ * 射影した「相手がその椅子をどれだけ好む傾向にあるか」を表すカウント
+ * (椅子番号→カウント、多いほど相手に好まれている)へ変換する。
+ * 用途は候補椅子どうしの相対的な優先順位付けのみであり、他の値(期待値等)と
+ * 直接比較・加算するものではないため、絶対的なスケールに意味は無い
+ * (issue #167)。
+ *
+ * @param {{ chosenChair: number, availableChairs: number[] }[]} actions
+ * @param {number[]} currentChairs
+ * @returns {Object} 椅子番号→カウント
+ */
+function buildOpponentPreferenceCounts(actions, currentChairs) {
+  const counts = {};
+  currentChairs.forEach(c => { counts[c] = 0; });
+  actions.forEach(({ chosenChair, availableChairs }) => {
+    const rank = computeRelativeRank(chosenChair, availableChairs);
+    const projectedChair = projectRankToChair(rank, currentChairs);
+    counts[projectedChair] = (counts[projectedChair] || 0) + 1;
+  });
+  return counts;
+}
+
+/**
  * 現在の局面(このターンの選択者(chooser)視点)における、各椅子の
  * 「安全に着地した場合」と「感電した場合」の継続価値を、
  * solveEndgameValueへの再帰呼び出しにより計算する。
@@ -261,18 +315,51 @@ function solveEndgameValue(remainingChairs, chooserScore, chooserShocks, setterS
  * @param {string} playerId - AIプレイヤーのID
  * @param {string} role - 'set' または 'choose'
  * @param {number[]} remainingChairs - 残っている椅子
- * @param {{ selfScore?: number, opponentScore?: number, selfShocks?: number, opponentShocks?: number }} [matchState]
+ * @param {{ selfScore?: number, opponentScore?: number, selfShocks?: number, opponentShocks?: number,
+ *   opponentHistory?: { setterActions?: { chosenChair: number, availableChairs: number[] }[],
+ *     chooserActions?: { chosenChair: number, availableChairs: number[] }[] } }} [matchState]
  *   対局状態。省略時(0扱い)は椅子番号そのものを価値とみなした状態非依存のロジックにフォールバックする。
+ *   opponentHistoryは相手が過去に設置/選択した椅子の観測履歴(issue #167)。setterActionsは
+ *   相手が設置者だったターンで実際に罠を張った椅子(感電で判明したもののみ)、chooserActionsは
+ *   相手が選択者だったターンで実際に選んだ椅子。いずれも省略時は均衡プレイにフォールバックする。
  * @returns {{ setChairs?: number[], chosenChair?: number, reasoning: string }}
  */
 function getNashMove(playerId, role, remainingChairs, matchState = {}) {
-  const { selfScore = 0, opponentScore = 0, selfShocks = 0, opponentShocks = 0 } = matchState;
+  const { selfScore = 0, opponentScore = 0, selfShocks = 0, opponentShocks = 0, opponentHistory = {} } = matchState;
+  const { setterActions = [], chooserActions = [] } = opponentHistory;
   const numToSet = getNumToSet(remainingChairs.length);
 
   // 設置者視点で見た「相手(選択者)があと1回の感電で敗北するか」。
   // reasoning文言のみに使う(実際の仕掛け先の決定は、いずれの分岐でも
   // 感電コストが価値に統合された単一のvalueFn/trapCostFnによって行われる)。
   const isOpponentOneShockFromLosing = opponentShocks >= GAME_RULES.MAX_SHOCKS - 1;
+
+  // 相手の観測傾向を反映する(issue #167)。自分が設置者(role === 'set')なら
+  // 相手は選択者なのでchooserActionsを、自分が選択者なら相手は設置者なので
+  // setterActionsを、それぞれ現在の残り椅子へ射影した「相手がその椅子を
+  // どれだけ好む傾向にあるか」のカウントに変換する。
+  //
+  // 却下した設計: 当初はfictitiousPlayのカウンター初期値(擬似観測)として
+  // 混ぜ込む方式を検討したが、fictitiousPlayは両者が毎回互いに最適反応する
+  // 相互最適反応(mutual best response)であり、1000回の反復のうちに
+  // シミュレートされた「相手」側もこちらの偏った初期値に対して合理的に
+  // 適応してしまう(むしろ観測傾向と逆方向に動くことを自己対戦ベンチマークで
+  // 確認した)。相手の実際の行動は(このシミュレーションと異なり)こちらの
+  // 手を見て適応するものではない固定された観測事実であるため、相互最適反応の
+  // 均衡計算そのものには混ぜず、後段の「候補椅子からどれを選ぶか」という
+  // 優先順位付けにのみ用いる(常に0件時は完全に従来の挙動へフォールバックする)。
+  const relevantOpponentActions = role === 'set' ? chooserActions : setterActions;
+  const observedOpponentCount = relevantOpponentActions.length;
+  const opponentPreference = observedOpponentCount > 0
+    ? buildOpponentPreferenceCounts(relevantOpponentActions, remainingChairs)
+    : {};
+  // 観測数が少ないうちは均衡プレイに近く、観測が蓄積するほど観測傾向を
+  // 踏まえた応答(搾取)へ確率的に寄せていく信頼度(0〜1)。1回でも観測が
+  // あれば毎回必ず搾取側に倒す(＝完全に決定的になる)と、序盤の少数の
+  // 観測(偶然の一致を含む)にも過剰反応してしまうため、観測数に応じて
+  // 徐々に効果を強める(自己対戦ベンチマークで較正)。
+  const opponentModelConfidence = Math.min(1, observedOpponentCount / OPPONENT_MODEL_CONFIDENCE_SATURATION_COUNT);
+  const useOpponentModel = observedOpponentCount > 0 && Math.random() < opponentModelConfidence;
 
   let valueFn;
   let trapCostFn;
@@ -319,9 +406,24 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
     const highValueChairs = chairs.filter((c, i) => expectedValues[i] > gameValue);
     const lowValueChairs = chairs.filter((c, i) => expectedValues[i] <= gameValue);
 
+    // 均衡プレイ上は同格の候補(highValueChairs/lowValueChairsそれぞれの内部)から
+    // 実際にどれを選ぶかは、観測傾向を採用する回(useOpponentModel)であれば
+    // それを優先する(相手が好んで座る傾向にある椅子ほど有効な仕掛け先になる
+    // ため)。それ以外は従来通りランダムに並べる。いずれの場合も、末尾から
+    // popして選ぶため昇順(最も好まれる椅子が末尾)にソートする。
+    // 事前にランダムシャッフルしてから安定ソートすることで、opponentPreferenceが
+    // 同点(観測に偏りが無い場合など)の椅子どうしの順序もランダムになるようにする
+    // (先にソートだけ行うと、V8のsortは安定ソートのため同点の要素は元の配列の
+    // 並び順(常にchairsの昇順)のまま残ってしまい、偏りが無いはずの観測でも
+    // 常に最大/最小の椅子番号が選ばれてしまう不具合があった)。
     const setChairs = [];
-    const shuffledHigh = [...highValueChairs].sort(() => 0.5 - Math.random());
-    const shuffledLow = [...lowValueChairs].sort(() => 0.5 - Math.random());
+    const sortByOpponentPreference = (a, b) => (opponentPreference[a] || 0) - (opponentPreference[b] || 0);
+    const shuffledHigh = useOpponentModel
+      ? [...highValueChairs].sort(() => 0.5 - Math.random()).sort(sortByOpponentPreference)
+      : [...highValueChairs].sort(() => 0.5 - Math.random());
+    const shuffledLow = useOpponentModel
+      ? [...lowValueChairs].sort(() => 0.5 - Math.random()).sort(sortByOpponentPreference)
+      : [...lowValueChairs].sort(() => 0.5 - Math.random());
 
     while (setChairs.length < numToSet) {
       if (shuffledHigh.length > 0) {
@@ -334,10 +436,13 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
     const reasoning = isOpponentOneShockFromLosing
       ? `相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、` +
         `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
-      : usedEndgameLookahead
-        ? `ナッシュ均衡分析（終盤の先読み）により、最も期待値の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
-        : `ナッシュ均衡分析により、ゲームの値 ${gameValue.toFixed(2)} を考慮して` +
-          `期待得点の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+      : useOpponentModel
+        ? `対戦相手の行動傾向(観測${observedOpponentCount}件)を考慮し、` +
+          `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
+        : usedEndgameLookahead
+          ? `ナッシュ均衡分析（終盤の先読み）により、最も期待値の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
+          : `ナッシュ均衡分析により、ゲームの値 ${gameValue.toFixed(2)} を考慮して` +
+            `期待得点の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
 
     return { setChairs, reasoning };
   } else {
@@ -360,6 +465,20 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
       reasoning =
         `ナッシュ均衡分析により、全ての椅子がゲームの値 ${gameValue.toFixed(2)} 以下でした。` +
         `最も期待値の高い椅子 ${chosenChair} を選択します。`;
+    } else if (useOpponentModel) {
+      // 観測傾向を採用する回であれば、goodChairsの中で最も相手(設置者)に
+      // 好まれていない(＝罠を張られている可能性が低い)椅子を選ぶ(issue #167)。
+      // 事前にランダムシャッフルしてから比較することで、opponentPreferenceが
+      // 同点(観測に偏りが無い場合など)の椅子どうしの選択もランダムになるように
+      // する(shuffledHigh/shuffledLowと同様の理由。reduceは最初に見つかった
+      // 最小値を保持し続けるため、シャッフルしないと常にgoodChairsの先頭
+      // (常にchairsの昇順の先頭)が選ばれてしまう)。
+      const shuffledGoodChairs = [...goodChairs].sort(() => 0.5 - Math.random());
+      chosenChair = shuffledGoodChairs.reduce((safest, c) =>
+        (opponentPreference[c] || 0) < (opponentPreference[safest] || 0) ? c : safest
+      , shuffledGoodChairs[0]);
+
+      reasoning = `対戦相手の行動傾向(観測${observedOpponentCount}件)を考慮し、椅子 ${chosenChair} を選択しました。`;
     } else {
       // goodChairsから確率分布 chooseProb に従って選択
       const totalProb = goodChairs.reduce((sum, c) => sum + chooseProb[c], 0);
@@ -397,6 +516,9 @@ module.exports = {
   computeChooserBestResponse,
   hasConverged,
   computeShockCost,
+  computeRelativeRank,
+  projectRankToChair,
+  buildOpponentPreferenceCounts,
   solveEndgameValue,
   getNashMove,
 };
