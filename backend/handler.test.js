@@ -846,10 +846,10 @@ describe('Backend Handler Specification Tests', () => {
   });
 
   it('should handle generateCommentary correctly (no API key scenario)', async () => {
-    // Without GEMINI_API it returns 200 with mock commentary
+    // GEMINI_API未設定時は200でモック解説を返す
     const originalEnv = process.env.GEMINI_API;
     delete process.env.GEMINI_API;
-    
+
     const res = await generateCommentary({
       body: JSON.stringify({
         gameState: {},
@@ -857,24 +857,16 @@ describe('Backend Handler Specification Tests', () => {
       })
     });
     expect(res.statusCode).toBe(200);
-    
-    process.env.GEMINI_API = originalEnv || 'dummy-key';
-    
-    // As we can't reliably test actual Gemini API call without mocking, we just test if it returns a response or fails gracefully
-    // Usually we would mock GoogleGenAI, but here we just ensure the function doesn't crash completely.
-    try {
-      const res2 = await generateCommentary({
-        body: JSON.stringify({
-          gameState: {},
-          action: {}
-        })
-      });
-      // Depending on the key, it could be 500 or 200
-      expect([200, 500]).toContain(res2.statusCode);
-    } catch {
-      // Ignore
-    }
 
+    process.env.GEMINI_API = originalEnv;
+
+    // GEMINI_API設定時の実際のGemini呼び出し(成功/失敗/タイムアウト)は
+    // commentary.test.jsで@google/genaiをモックした上で決定的に検証済み。
+    // ここでダミーキーのまま実ネットワーク呼び出しを行うと、CI環境の
+    // ネットワーク条件次第でCOMMENTARY_TIMEOUT_MS(5000ms)の内部タイムアウトと
+    // vitestの既定テストタイムアウト(5000ms)が競合し断続的に失敗することを
+    // 実際のCI実行で確認した。そのため、ここでは不正なJSONボディの
+    // 異常系のみを検証する。
     const resError = await generateCommentary({ body: '{invalid-json}' });
     expect(resError.statusCode).toBe(500);
   });
