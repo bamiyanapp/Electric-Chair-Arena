@@ -581,7 +581,10 @@ describe('getNashMove considers shock cost (issue #166)', () => {
 
   it('setter increasingly favors chairs likely to be chosen (over raw value) as the opponent accumulates more score to lose', () => {
     const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    const trials = 100;
+    // 100試合では2つのカウントが偶然一致しテストが不安定になることを確認した
+    // (実測: 100試合で75対75)ため、試行回数を増やし、単なる不一致ではなく
+    // 意味のある差(絶対差が一定以上)であることを検証する
+    const trials = 200;
 
     const highValueCountsLowOpponentScore = { count: 0 };
     const highValueCountsHighOpponentScore = { count: 0 };
@@ -597,7 +600,8 @@ describe('getNashMove considers shock cost (issue #166)', () => {
     // 比重が増すため、必ずしも高得点椅子(9以上)ばかりを狙わなくなる
     // (選ばれやすい椅子を優先するようになる)ことを、厳密な閾値ではなく
     // 分布が変化していることで確認する。
-    expect(highValueCountsLowOpponentScore.count).not.toBe(highValueCountsHighOpponentScore.count);
+    const diff = Math.abs(highValueCountsLowOpponentScore.count - highValueCountsHighOpponentScore.count);
+    expect(diff).toBeGreaterThan(3);
   });
 });
 

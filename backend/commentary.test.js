@@ -23,16 +23,19 @@ const fakeModule = new Module(genaiPath);
 fakeModule.exports = { GoogleGenAI: FakeGoogleGenAI };
 Module._cache[genaiPath] = fakeModule;
 
-// vitest.config.jsのfileParallelism:false設定下ではテストファイル間でNodeの
-// requireキャッシュ(モジュールレジストリ)が共有される。benchmark.test.jsが
-// (上記のモック差し込みより前に)先に./handler.jsをrequireしていた場合、
-// handler.js自体が実@google/genaiへ紐付いた状態のままキャッシュされてしまうため、
-// handler.jsのキャッシュエントリを明示的に削除し、モック差し込み後の内容で
-// 必ず再評価(再require)されるようにする。
+// CIのbackend-testはカバレッジ計測の都合上`--no-isolate`付きで実行され、
+// テストファイル間でNodeのrequireキャッシュ(モジュールレジストリ)が共有される。
+// benchmark.test.jsが(上記のモック差し込みより前に)先に./handler.jsを
+// requireしていた場合、handler.js自体が実@google/genaiへ紐付いた状態で
+// キャッシュされてしまう。そのためhandler.jsのキャッシュエントリを明示的に
+// 削除したうえで、モック差し込み後の内容で必ず再評価(再require)されるように
+// する。ただし`await import(...)`(ESM動的import)はCJSモジュールに対して
+// Node独自の別キャッシュ(Module._cacheの削除では無効化されない)を持つため、
+// ここでは意図的にrequireFromHere(CJSのrequire)を使う。
 const handlerPath = requireFromHere.resolve('./handler.js');
 delete Module._cache[handlerPath];
 
-const { generateCommentary } = await import('./handler.js');
+const { generateCommentary } = requireFromHere('./handler.js');
 
 beforeEach(() => {
   currentGenerateContent = async () => ({ text: '' });

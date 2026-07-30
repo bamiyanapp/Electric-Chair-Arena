@@ -78,15 +78,18 @@ fakeDynamoClientModule.exports = {
 };
 Module._cache[dynamoClientPath] = fakeDynamoClientModule;
 
-// vitest.config.jsのfileParallelism:false設定下ではテストファイル間でNodeの
-// requireキャッシュ(モジュールレジストリ)が共有される。benchmark.test.jsが
-// (上記のモック差し込みより前に)先に./handler.jsをrequireしていた場合、
-// handler.js自体が実dynamoClient.jsへ紐付いた状態のままキャッシュされて
-// しまうため、handler.jsのキャッシュエントリを明示的に削除し、モック差し込み後の
-// 内容で必ず再評価(再require)されるようにする。
+// CIのbackend-testはカバレッジ計測の都合上`--no-isolate`付きで実行され、
+// テストファイル間でNodeのrequireキャッシュ(モジュールレジストリ)が共有される。
+// benchmark.test.jsが(上記のモック差し込みより前に)先に./handler.jsを
+// requireしていた場合、handler.js自体が実dynamoClient.jsへ紐付いた状態で
+// キャッシュされてしまう。そのためhandler.jsのキャッシュエントリを明示的に
+// 削除したうえで、モック差し込み後の内容で必ず再評価(再require)されるように
+// する。ただし`await import(...)`(ESM動的import)はCJSモジュールに対して
+// Node独自の別キャッシュ(Module._cacheの削除では無効化されない)を持つため、
+// ここでは意図的にrequireFromHere(CJSのrequire)を使う。
 delete Module._cache[handlerPath];
 
-const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } = await import('./handler.js');
+const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } = requireFromHere('./handler.js');
 
 describe('Backend Handler Specification Tests', () => {
   beforeEach(() => {
