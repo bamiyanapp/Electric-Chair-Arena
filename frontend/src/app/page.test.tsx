@@ -132,9 +132,11 @@ describe('Home Component', () => {
       })),
     });
 
-    window.Audio = vi.fn().mockImplementation(() => ({
-      play: vi.fn().mockRejectedValue(new Error('play error')),
-    })) as unknown as typeof Audio;
+    window.Audio = vi.fn().mockImplementation(function () {
+      return {
+        play: vi.fn().mockRejectedValue(new Error('play error')),
+      };
+    }) as unknown as typeof Audio;
 
     global.fetch = vi.fn((url: string | Request | URL) => {
       const urlStr = url.toString();
