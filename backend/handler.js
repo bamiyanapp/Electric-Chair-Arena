@@ -182,10 +182,44 @@ module.exports.getLeaderboard = async () => {
   };
 };
 
+// opponentHistory.setterActions/chooserActionsの各要素
+// { chosenChair: number, availableChairs: number[] } の形式を検証する
+// (issue #167)。availableChairsはchosenChairを実際に選んだ時点での選択肢
+// (残り椅子)であり、chosenChairを含む有効な椅子番号の配列でなければならない。
+function isValidOpponentAction(action, isValidChairNumber) {
+  if (!action || typeof action !== 'object') return false;
+  const { chosenChair, availableChairs } = action;
+  return (
+    isValidChairNumber(chosenChair) &&
+    Array.isArray(availableChairs) &&
+    availableChairs.length > 0 &&
+    availableChairs.every(isValidChairNumber) &&
+    availableChairs.includes(chosenChair)
+  );
+}
+
+// opponentHistory自体は任意項目。省略時はcomputeAiMove側で観測無し(0件)として
+// 扱われ、従来通りの均衡プレイにフォールバックする。指定された場合のみ、
+// setterActions/chooserActions(いずれも任意)の形式を検証する。1試合の
+// ターン数はGAME_RULES.TOTAL_CHAIRSを超えないため、それぞれの配列長も
+// 同じ上限で制限する。
+function isValidOpponentHistory(opponentHistory, isValidChairNumber) {
+  if (opponentHistory === undefined) return true;
+  if (!opponentHistory || typeof opponentHistory !== 'object' || Array.isArray(opponentHistory)) return false;
+  const { setterActions, chooserActions } = opponentHistory;
+  const isValidActionList = (actions) =>
+    actions === undefined || (
+      Array.isArray(actions) &&
+      actions.length <= GAME_RULES.TOTAL_CHAIRS &&
+      actions.every((a) => isValidOpponentAction(a, isValidChairNumber))
+    );
+  return isValidActionList(setterActions) && isValidActionList(chooserActions);
+}
+
 module.exports.getAiMove = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { aiPlayerId, role, remainingChairs, selfScore, opponentScore, selfShocks, opponentShocks } = body;
+    const { aiPlayerId, role, remainingChairs, selfScore, opponentScore, selfShocks, opponentShocks, opponentHistory } = body;
 
     if (!aiPlayerId || !role || !remainingChairs) {
       return {
@@ -220,7 +254,15 @@ module.exports.getAiMove = async (event) => {
       };
     }
 
-    const move = computeAiMove(aiPlayerId, role, remainingChairs, { selfScore, opponentScore, selfShocks, opponentShocks });
+    if (!isValidOpponentHistory(opponentHistory, isValidChairNumber)) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'opponentHistory must contain setterActions/chooserActions arrays of { chosenChair, availableChairs } if provided' }),
+      };
+    }
+
+    const move = computeAiMove(aiPlayerId, role, remainingChairs, { selfScore, opponentScore, selfShocks, opponentShocks, opponentHistory });
 
     return {
       statusCode: 200,
@@ -316,7 +358,9 @@ function weightedSampleWithoutReplacement(items, weightFn, count) {
 }
 
 // AIの行動と思考。matchState(スコア・感電回数)は任意で、省略時(undefined)は
-// 各AIとも従来通り状態非依存のロジックにフォールバックする。
+// 各AIとも従来通り状態非依存のロジックにフォールバックする。matchState.opponentHistory
+// (相手の設置/選択履歴。issue #167)は現状ai-nash(getNashMove)のみが利用し、
+// 他のキャラクターAIは無視する。
 function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
   const { selfScore = 0, opponentScore = 0, opponentShocks = 0 } = matchState;
 

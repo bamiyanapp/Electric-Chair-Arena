@@ -6,6 +6,9 @@ import {
   computeChooserBestResponse,
   hasConverged,
   computeShockCost,
+  computeRelativeRank,
+  projectRankToChair,
+  buildOpponentPreferenceCounts,
   solveEndgameValue,
   getNashMove,
 } from './nash.js';
@@ -581,10 +584,11 @@ describe('getNashMove considers shock cost (issue #166)', () => {
 
   it('setter increasingly favors chairs likely to be chosen (over raw value) as the opponent accumulates more score to lose', () => {
     const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    // 100試合では2つのカウントが偶然一致しテストが不安定になることを確認した
-    // (実測: 100試合で75対75)ため、試行回数を増やし、単なる不一致ではなく
-    // 意味のある差(絶対差が一定以上)であることを検証する
-    const trials = 200;
+    // 200試行・閾値3では効果量自体のばらつきが大きく(実測diff: 1,33,13,4,8,3,24,1)、
+    // 断続的にテストが失敗することを確認した。試行回数を1000まで増やしたところ
+    // diffが安定して40以上になった(実測: 41,60,65,70,72)ため、十分な余裕を
+    // 持たせた閾値20を採用する
+    const trials = 1000;
 
     const highValueCountsLowOpponentScore = { count: 0 };
     const highValueCountsHighOpponentScore = { count: 0 };
@@ -601,8 +605,8 @@ describe('getNashMove considers shock cost (issue #166)', () => {
     // (選ばれやすい椅子を優先するようになる)ことを、厳密な閾値ではなく
     // 分布が変化していることで確認する。
     const diff = Math.abs(highValueCountsLowOpponentScore.count - highValueCountsHighOpponentScore.count);
-    expect(diff).toBeGreaterThan(3);
-  });
+    expect(diff).toBeGreaterThan(20);
+  }, 15000);
 });
 
 // issue #166: 終盤(残り椅子が少ない局面)での継続価値の厳密な先読み
@@ -660,5 +664,167 @@ describe('solveEndgameValue', () => {
     const start = Date.now();
     getNashMove('ai-nash', 'choose', [1, 2, 3], { selfScore: 15, opponentScore: 20, selfShocks: 1, opponentShocks: 1 });
     expect(Date.now() - start).toBeLessThan(1000);
+  });
+});
+
+// issue #167: 対戦中に観測した相手の行動傾向をAIの意思決定に反映する(相手モデリング)
+describe('computeRelativeRank', () => {
+  it('returns 0 for the lowest value and 1 for the highest value among the available choices', () => {
+    const chairs = [1, 2, 3, 4, 5];
+    expect(computeRelativeRank(1, chairs)).toBe(0);
+    expect(computeRelativeRank(5, chairs)).toBe(1);
+    expect(computeRelativeRank(3, chairs)).toBe(0.5);
+  });
+
+  it('does not depend on the order of availableChairs', () => {
+    expect(computeRelativeRank(8, [10, 2, 8, 4, 6])).toBe(computeRelativeRank(8, [2, 4, 6, 8, 10]));
+  });
+
+  it('returns 0.5 as a neutral fallback when the chair is not found in availableChairs (defensive)', () => {
+    expect(computeRelativeRank(99, [1, 2, 3])).toBe(0.5);
+  });
+
+  it('returns 0.5 when availableChairs has only a single element (rank is not meaningfully definable)', () => {
+    expect(computeRelativeRank(7, [7])).toBe(0.5);
+  });
+});
+
+describe('projectRankToChair', () => {
+  it('projects rank 0/1 to the lowest/highest chair in currentChairs', () => {
+    const chairs = [2, 4, 6, 8];
+    expect(projectRankToChair(0, chairs)).toBe(2);
+    expect(projectRankToChair(1, chairs)).toBe(8);
+  });
+
+  it('does not depend on the order of currentChairs', () => {
+    expect(projectRankToChair(0.5, [8, 2, 6, 4])).toBe(projectRankToChair(0.5, [2, 4, 6, 8]));
+  });
+
+  it('returns the single chair when currentChairs has only one element', () => {
+    expect(projectRankToChair(0.3, [5])).toBe(5);
+  });
+});
+
+describe('buildOpponentPreferenceCounts', () => {
+  it('accumulates a count on the projected chair for each observed action', () => {
+    const chairs = [1, 2, 3, 4, 5];
+    const actions = [
+      { chosenChair: 5, availableChairs: chairs }, // rank 1 → projects to 5
+      { chosenChair: 5, availableChairs: chairs },
+    ];
+    const counts = buildOpponentPreferenceCounts(actions, chairs);
+    expect(counts[5]).toBe(2);
+    expect(counts[1]).toBe(0);
+  });
+
+  it('projects a historical high-value pick onto the current (smaller) remaining chairs as a high-value pick', () => {
+    const historicalChairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const actions = [{ chosenChair: 12, availableChairs: historicalChairs }]; // rank 1 (highest)
+    const currentChairs = [3, 5, 7]; // 椅子11本が既に無くなった終盤の残り椅子
+    const counts = buildOpponentPreferenceCounts(actions, currentChairs);
+    expect(counts[7]).toBe(1); // 現在の残り椅子の中で最も高い椅子へ射影される
+    expect(counts[3]).toBe(0);
+    expect(counts[5]).toBe(0);
+  });
+
+  it('returns all-zero counts when there are no observed actions', () => {
+    const counts = buildOpponentPreferenceCounts([], [1, 2, 3]);
+    expect(Object.values(counts).every(c => c === 0)).toBe(true);
+  });
+});
+
+describe('getNashMove reflects observed opponent tendencies (opponentHistory, issue #167)', () => {
+  const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+  it('setter increasingly targets a chair the opponent (chooser) has consistently favored, as more observations accumulate', () => {
+    const trials = 400;
+    const countHighTarget = (chooserActions) => {
+      let count = 0;
+      for (let i = 0; i < trials; i++) {
+        const opponentHistory = chooserActions ? { chooserActions } : undefined;
+        const result = getNashMove('ai-nash', 'set', chairs, opponentHistory ? { opponentHistory } : {});
+        if (result.setChairs[0] >= 10) count++;
+      }
+      return count;
+    };
+
+    const makeBiasedHistory = (n) =>
+      Array.from({ length: n }, () => ({ chosenChair: 11, availableChairs: chairs }));
+
+    const baseline = countHighTarget(undefined);
+    const fewObservations = countHighTarget(makeBiasedHistory(1));
+    const manyObservations = countHighTarget(makeBiasedHistory(8));
+
+    // 観測が蓄積するほど、相手が好む(高得点の)椅子への標的化が強まる
+    expect(fewObservations).toBeGreaterThan(baseline);
+    expect(manyObservations).toBeGreaterThan(fewObservations);
+    // 十分な観測数では、ほぼ確実に相手の好む椅子(11、この場合8以上)を狙う
+    expect(manyObservations / trials).toBeGreaterThan(0.95);
+  }, 15000);
+
+  it('chooser increasingly avoids a chair the opponent (setter) has consistently trapped, as more observations accumulate', () => {
+    const trials = 400;
+    // baseline(履歴無し)でも一定確率で選ばれる椅子(goodChairsに含まれる椅子)を
+    // 標的にしないと、observedOpponentCount=0でも常に0回のままとなり比較にならない
+    const targetChair = 11;
+    const countTargetChosen = (setterActions) => {
+      let count = 0;
+      for (let i = 0; i < trials; i++) {
+        const opponentHistory = setterActions ? { setterActions } : undefined;
+        const result = getNashMove('ai-nash', 'choose', chairs, opponentHistory ? { opponentHistory } : {});
+        if (result.chosenChair === targetChair) count++;
+      }
+      return count;
+    };
+
+    const makeBiasedHistory = (n) =>
+      Array.from({ length: n }, () => ({ chosenChair: targetChair, availableChairs: chairs }));
+
+    const baseline = countTargetChosen(undefined);
+    expect(baseline).toBeGreaterThan(0); // 前提: 履歴無しでは一定頻度で選ばれる椅子であること
+
+    const manyObservations = countTargetChosen(makeBiasedHistory(8));
+    expect(manyObservations).toBeLessThan(baseline);
+    expect(manyObservations).toBe(0); // 十分な観測数では、罠を張られ続けた椅子は一切選ばない
+  }, 15000);
+
+  it('does not systematically change behavior when the opponent history is unbiased (averaged over many independent draws)', () => {
+    const trials = 800;
+    let biasedCount = 0;
+    let unbiasedCount = 0;
+
+    for (let i = 0; i < trials; i++) {
+      const biasedResult = getNashMove('ai-nash', 'set', chairs, {
+        opponentHistory: { chooserActions: Array.from({ length: 6 }, () => ({ chosenChair: 11, availableChairs: chairs })) },
+      });
+      if (biasedResult.setChairs[0] >= 10) biasedCount++;
+
+      // 毎回、無作為な(偏りの無い)観測履歴を新規に生成してから1回だけ判断する
+      // (固定の1回の履歴に対して繰り返し判断すると、少数観測ゆえの偶然の偏りが
+      // そのまま観測されてしまい、平均的な挙動の検証にならない)
+      const unbiasedActions = Array.from({ length: 6 }, () => ({
+        chosenChair: chairs[Math.floor(Math.random() * chairs.length)],
+        availableChairs: chairs,
+      }));
+      const unbiasedResult = getNashMove('ai-nash', 'set', chairs, { opponentHistory: { chooserActions: unbiasedActions } });
+      if (unbiasedResult.setChairs[0] >= 10) unbiasedCount++;
+    }
+
+    // 一貫して偏った履歴は明確に標的化するが、偏りの無い履歴は(平均すれば)標的化しない
+    expect(biasedCount / trials).toBeGreaterThan(0.9);
+    expect(unbiasedCount / trials).toBeLessThan(0.8);
+  }, 15000);
+
+  it('falls back to the standard equilibrium logic when opponentHistory is omitted (backward compatible)', () => {
+    const result = getNashMove('ai-nash', 'set', chairs, { opponentScore: 10 });
+    expect(result.setChairs).toHaveLength(1);
+    expect(result.reasoning).not.toContain('行動傾向');
+  });
+
+  it('mentions the observed opponent tendency in the reasoning text once enough observations exist', () => {
+    const chooserActions = Array.from({ length: 8 }, () => ({ chosenChair: 11, availableChairs: chairs }));
+    const result = getNashMove('ai-nash', 'set', chairs, { opponentHistory: { chooserActions } });
+    expect(result.reasoning).toContain('行動傾向');
+    expect(result.reasoning).toContain('観測8件');
   });
 });

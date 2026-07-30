@@ -388,6 +388,71 @@ describe('Backend Handler Specification Tests', () => {
     });
   });
 
+  // issue #167: 対戦中に観測した相手(人間)の行動傾向をopponentHistoryとして
+  // /ai-moveへ渡せるようにする(相手モデリング)。
+  describe('ai-move considers opponent history (issue #167)', () => {
+    const chairs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+    it('falls back to the standard logic when opponentHistory is omitted (backward compatible)', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs })
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).setChairs).toHaveLength(1);
+    });
+
+    it('accepts a well-formed opponentHistory and reflects it in the resulting setChairs distribution', async () => {
+      const opponentHistory = {
+        chooserActions: Array.from({ length: 8 }, () => ({ chosenChair: 11, availableChairs: chairs })),
+      };
+      let highTargetCount = 0;
+      const trials = 100;
+      for (let i = 0; i < trials; i++) {
+        const res = await getAiMove({
+          body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs, opponentHistory })
+        });
+        expect(res.statusCode).toBe(200);
+        if (JSON.parse(res.body).setChairs[0] >= 10) highTargetCount++;
+      }
+      expect(highTargetCount / trials).toBeGreaterThan(0.9);
+    });
+
+    it('rejects opponentHistory entries with a chosenChair that is not included in availableChairs', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({
+          aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs,
+          opponentHistory: { chooserActions: [{ chosenChair: 11, availableChairs: [1, 2, 3] }] },
+        })
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects opponentHistory entries with an out-of-range or non-integer chosenChair', async () => {
+      const res = await getAiMove({
+        body: JSON.stringify({
+          aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs,
+          opponentHistory: { chooserActions: [{ chosenChair: 999, availableChairs: chairs }] },
+        })
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('rejects a malformed opponentHistory shape (not an object, or setterActions/chooserActions not arrays)', async () => {
+      const resNotObject = await getAiMove({
+        body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs, opponentHistory: 'not-an-object' })
+      });
+      expect(resNotObject.statusCode).toBe(400);
+
+      const resNotArray = await getAiMove({
+        body: JSON.stringify({
+          aiPlayerId: 'ai-nash', role: 'set', remainingChairs: chairs,
+          opponentHistory: { setterActions: 'not-an-array' },
+        })
+      });
+      expect(resNotArray.statusCode).toBe(400);
+    });
+  });
+
   it('should reject getAiMove with an invalid remainingChairs/role (regression test for NaN/crash on empty array)', async () => {
     const resEmptyChairs = await getAiMove({
       body: JSON.stringify({ aiPlayerId: 'ai-nash', role: 'set', remainingChairs: [] })
