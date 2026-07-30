@@ -6,6 +6,12 @@ const repoName = (isGithubActions && process.env.GITHUB_REPOSITORY) ? process.en
 /** @type {import('next').NextConfig} */
 const basePath = isGithubActions ? `/${repoName}` : '';
 const nextConfig = {
+  // TypeScript 7系はNext.jsが従来型チェックに使っていたコンパイラAPIを
+  // 提供しない(tsgoベースのCLIに置き換わっている)ため、useTypeScriptCliを
+  // 有効化してNext.js側の型チェックをTypeScript 7のCLI経由で行う。
+  // 無効のままだと`next build`が「TypeScript未インストール」という
+  // 誤解を招くメッセージで失敗する。
+  experimental: { useTypeScriptCli: true },
   output: 'export',
   basePath: basePath,
   assetPrefix: isGithubActions ? `${basePath}/` : '',
