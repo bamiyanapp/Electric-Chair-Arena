@@ -12,7 +12,7 @@
     "@vitest/coverage-v8": "^4.0.0",
     "eslint": "^10.0.0",
     "globals": "^17.0.0",
-    "osls": "^3.76.1",
+    "osls": "^4.0.0",
     "serverless-dynamodb-local": "^0.2.40",
     "serverless-offline": "^14.7.3",
     "vitest": "^4.0.0"
