@@ -1,13 +1,13 @@
 # システムアーキテクチャ設計 (Electric Chair Arena)
 
 ## 1. 構成概要
-本システムは React (Next.js) をフロントエンドに、AWS Lambda をバックエンドに使用したサーバーレスアーキテクチャで構成される。インフラ管理には Serverless Framework を使用する。
+本システムは React (Next.js) をフロントエンドに、AWS Lambda をバックエンドに使用したサーバーレスアーキテクチャで構成される。インフラ管理には OSLS（Serverless Framework v3互換の軽量フォーク。v4のライセンス変更を避けるため採用）を使用する。
 
 ## 2. 技術スタック
 - **Frontend**: Next.js (React), TypeScript, Tailwind CSS
 - **Backend**: AWS Lambda, API Gateway
 - **Database**: 読み取りはLambda プロセス内のインメモリ配列（`backend/handler.js` の `playersDb` / `matchesDb`）を使用。試合終了時（`startMatch` / `saveMatch`）のスコアボードはDynamoDB（`MatchesTable`）へも書き込む（書き込み失敗時もレスポンスはブロックしないベストエフォート方式）。
-- **Infrastructure**: Serverless Framework
+- **Infrastructure**: OSLS (Serverless Framework v3互換)
 - **AI Integration**: Gemini API は対戦の実況テキスト生成（`generateCommentary`）にのみ使用。AI自体の行動決定はLLMを使わず、`backend/handler.js` 内のヒューリスティックロジック（個性付きAI3種・ランダムAI・期待値計算AI）と `backend/nash.js` のナッシュ均衡AIで行う。OpenAI APIは使用していない。
 
 ## 3. コンポーネント構成
@@ -74,7 +74,7 @@ graph TD
 
 ### 5.2 リモート（本番）環境へのデプロイ
 1. **バックエンド**:
-   - Serverless Framework (`sls deploy`) により AWS リソース（Lambda, API Gateway, DynamoDB）を構築し、APIエンドポイントを発行する。
+   - OSLS (`sls deploy`) により AWS リソース（Lambda, API Gateway, DynamoDB）を構築し、APIエンドポイントを発行する。
 2. **フロントエンド**:
    - Vercel, GitHub Pages 等のホスティング環境へデプロイする。
    - デプロイ時に環境変数 (`NEXT_PUBLIC_API_URL`等) でリモートのAPIエンドポイントを指定する。
