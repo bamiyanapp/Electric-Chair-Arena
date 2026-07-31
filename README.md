@@ -233,16 +233,16 @@ AI勝利数 / 人間との総試合数
 # CI/CD とデプロイ
 
 ## GitHub Pages へのデプロイ設定
-本プロジェクトのフロントエンドは、GitHub Actions の CD ワークフロー（`cd.yml`）により `gh-pages` ブランチを介して GitHub Pages へデプロイされます。`main` ブランチへの変更がプッシュされると、フロントエンドのビルド成果物（`out/`）が自動的に `gh-pages` ブランチにプッシュされます。
+本プロジェクトのフロントエンドは、GitHub Actions の CD ワークフロー（`cd.yml`）により GitHub Actions 経由（`actions/deploy-pages`）で GitHub Pages へデプロイされます（[#189](https://github.com/bamiyanapp/Electric-Chair-Arena/issues/189)）。`main` ブランチへの変更がプッシュされると、フロントエンドのビルド成果物（`out/`）が自動的にビルド・デプロイされます。以前は `gh-pages` ブランチへpublishする方式でしたが、`dev-standards` の `deploy-github-pages` 複合actionへ移行した際にこの方式へ切り替えました。`gh-pages` ブランチはこの移行以降使用されないため、削除して構いません。
 
-デプロイ後にサイトが表示されない、またはエラーが発生する場合は、以下の設定を確認してください。
+**移行時に一度だけ必要な手動設定（重要）**: この方式は、リポジトリの **Settings > Pages > Build and deployment > Source** が **GitHub Actions** になっていることを前提とします。`gh-pages` ブランチ方式からの移行直後はまだ **Deploy from a branch** のままになっているため、以下の手順で変更してください（スマートフォンのブラウザから実施可能です）。
 
 1. GitHub のリポジトリページを開きます。
 2. **Settings** タブをクリックします。
 3. 左側のサイドバーから **Pages** を選択します。
-4. **Build and deployment** セクションの **Source** が **Deploy from a branch** に設定されていることを確認します。
-5. **Branch** 設定で、デプロイ元のブランチとして **`gh-pages`** （フォルダは `/ (root)`）が選択されていることを確認します。
-   ※ `gh-pages` ブランチは初回デプロイ実行（`main` ブランチへのプッシュ）により自動的に作成されます。
+4. **Build and deployment** セクションの **Source** を **GitHub Actions** に変更します。
+
+この設定変更が完了するまでは、CDワークフローの `deploy-frontend` job が失敗します（`gh-pages` ブランチ上の既存の公開内容はそのまま保持されるため、サイト自体が即座に見られなくなることはありません）。設定変更後、再度 `main` へのpush（またはワークフローの再実行）でデプロイが成功します。
 
 ### リモートでCSSやJavaScriptなどのアセットが読み込めない（スタイルが崩れる・動かない）場合の対策
 GitHub Pages（またはカスタムのサブディレクトリを持つ環境）にデプロイした際、「ローカル環境ではCSSやJSが効いているが、リモートにデプロイするとCSSが適用されず画面が崩れる」という現象が頻発することがあります。
