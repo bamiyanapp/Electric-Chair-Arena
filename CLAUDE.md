@@ -32,7 +32,7 @@
 
 本リポジトリの `.github/workflows/ci.yml` は、dev-standards リポジトリの `reusable-ci.yml`（`workflow_call`）を呼び出す形で構成している。CIジョブ（commitlint・frontend-test・backend-test）がすべて成功した場合にのみ `merge` ジョブがPRをsquashマージし作業ブランチを削除する。本リポジトリはsemantic-releaseによるバージョン管理を行っていないため、呼び出し時に `enable_release: false` を指定し、dev-standards側の`merge`ジョブ内でのバージョン更新（semantic-release実行・タグ付け）処理を無効化している。
 
-main へのpush時は別途 `.github/workflows/cd.yml` がフロントエンドをGitHub Pagesへ、バックエンドをAWS（Serverless Framework）へデプロイする。
+main へのpush時は別途 `.github/workflows/cd.yml` がフロントエンドをGitHub Pagesへ、バックエンドをAWS（OSLS。Serverless Framework v4のライセンス変更を避けるためのv3互換フォーク。[#201](https://github.com/bamiyanapp/Electric-Chair-Arena/issues/201)）へデプロイする。CLI上のコマンド名（`serverless`/`sls`）はv3時代のまま維持される。
 
 ### commitlint（`ci / commitlint` が `subject-case` / `body-max-line-length` で失敗する場合）
 

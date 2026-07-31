@@ -125,7 +125,7 @@ graph TD
 | <img src="https://cdn.simpleicons.org/tailwindcss/06B6D4" width="20" height="20" /> | **Tailwind CSS** | ユーティリティファーストのCSSフレームワーク。 |
 | <img src="./docs/resources/aws-icons/Asset-Package_07312025.49d3aab7f9e6131e51ade8f7c6c8b961ee7d3bb1/Architecture-Service-Icons_07312025/Arch_Database/32/Arch_Amazon-DynamoDB_32.svg" width="20" height="20" /> | **DynamoDB** | フルマネージドなNoSQLデータベース。AIモデルの学習データ、戦績、レーティング、対戦履歴を格納。 |
 | <img src="./docs/resources/aws-icons/Asset-Package_07312025.49d3aab7f9e6131e51ade8f7c6c8b961ee7d3bb1/Architecture-Service-Icons_07312025/Arch_Compute/32/Arch_AWS-Lambda_32.svg" width="20" height="20" /> | **AWS Lambda** | サーバーレスなイベント駆動型コンピューティングサービス。ゲームエンジンおよびAI学習エンジンをホスト。 |
-| <img src="https://cdn.simpleicons.org/serverless/FD5750" width="20" height="20" /> | **Serverless Framework** | サーバーレスアプリケーションの構成・デプロイを管理するフレームワーク。 |
+| <img src="https://cdn.simpleicons.org/serverless/FD5750" width="20" height="20" /> | **OSLS** | サーバーレスアプリケーションの構成・デプロイを管理するフレームワーク。Serverless Framework v4のライセンス変更を避けるため、v3互換の軽量フォークであるOSLSを採用（[#201](https://github.com/bamiyanapp/Electric-Chair-Arena/issues/201)）。 |
 | <img src="https://cdn.simpleicons.org/vitest/6E9F18" width="20" height="20" /> | **Vitest** | Viteネイティブで高速なユニットテストフレームワーク。 |
 | <img src="https://cdn.simpleicons.org/githubactions/2088FF" width="20" height="20" /> | **GitHub Actions** | CI/CD（継続的インテグレーション/継続的デプロイ）を自動化。 |
 
