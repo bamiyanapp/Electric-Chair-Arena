@@ -22,6 +22,7 @@ jobs:
       workspaces: true
       enable_standards_check: true
       enable_duplication_check: true
+      duplication_threshold: 2
       coverage_threshold: 90
       coverage_metrics: 'statements,functions,lines'
       enable_mermaid_render: true
