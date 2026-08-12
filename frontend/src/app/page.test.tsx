@@ -103,6 +103,7 @@ describe('Home Component', () => {
       back: vi.fn(),
       forward: vi.fn(),
       refresh: vi.fn(),
+      bfcacheId: 'test-bfcache-id',
     });
     vi.mocked(navigation.useSearchParams).mockReturnValue({
       get: mockGet,
