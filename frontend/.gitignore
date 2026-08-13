@@ -4,3 +4,13 @@ next-env.d.ts
 
 # Log files
 *.log
+
+# Playwright E2E（issue #187）
+test-results/
+playwright-report/
+monocart-report/
+e2e-screenshots/
+# next dev起動のたびに自動生成される（このリポジトリ側の成果物ではない）
+AGENTS.md
+CLAUDE.md
+assets/
