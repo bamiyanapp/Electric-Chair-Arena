@@ -3,7 +3,7 @@ import { captureScreenshot } from './screenshot.js';
 
 test.describe('ロビー画面', () => {
   test('タイトルとモード選択ボタンが表示される', async ({ page }, testInfo) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await expect(page.getByRole('heading', { name: 'Electric Chair Arena' })).toBeVisible();
     await expect(page.getByRole('button', { name: /人間対AI/ })).toBeVisible();
@@ -15,7 +15,7 @@ test.describe('ロビー画面', () => {
   });
 
   test('ルール説明モーダルの開閉ができる', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
 
     await page.getByRole('button', { name: /ルール説明/ }).click();
     await expect(page.getByText(GAME_RULE_TEXT)).toBeVisible();

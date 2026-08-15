@@ -8,7 +8,7 @@ import { captureScreenshot } from './screenshot.js';
 test.skip(({ browserName, isMobile }) => browserName !== 'chromium' || !isMobile, 'mobile-chromiumプロジェクトでのみ実行');
 
 test('モバイル幅でロビー・対戦相手選択・椅子盤面が崩れず表示される', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('./');
   await expect(page.getByRole('heading', { name: 'Electric Chair Arena' })).toBeVisible();
   await captureScreenshot(page, 'mobile-lobby', { caption: 'ロビー画面(モバイル幅)', testInfo });
 

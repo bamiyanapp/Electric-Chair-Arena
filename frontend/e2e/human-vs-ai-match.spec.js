@@ -7,7 +7,7 @@ import { captureScreenshot } from './screenshot.js';
 test.describe.configure({ timeout: 120_000 });
 
 test('ロビー→AIモデル選択→対戦→結果画面まで一連の流れを完走できる', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('./');
 
   await page.getByRole('button', { name: /人間対AI/ }).click();
   await expect(page.getByRole('heading', { name: '人間対AI モード' })).toBeVisible();
