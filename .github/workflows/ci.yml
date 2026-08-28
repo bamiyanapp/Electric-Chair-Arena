@@ -13,12 +13,11 @@ permissions:
 
 jobs:
   ci:
-    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v1.24.0
+    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.4.1
     with:
       frontend_dir: frontend
       backend_dir: backend
       node_version: '24'
-      enable_release: false
       workspaces: true
       enable_standards_check: true
       enable_duplication_check: true
