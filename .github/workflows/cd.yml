@@ -41,27 +41,31 @@ jobs:
 
   deploy-backend:
     runs-on: ubuntu-latest
+    env:
+      # serverless.ymlのprovider.environment.GEMINI_APIが${env:GEMINI_API, ''}で
+      # デプロイ時に読み取るため、deploy-serverless複合action内のデプロイ
+      # コマンド実行にも見えるようjob-levelで設定する（複合actionの
+      # 内部stepはこのjobの一部として実行されるため、job-level envを継承する。
+      # deploy-frontend jobのNEXT_PUBLIC_API_URLと同じ方式）。
+      GEMINI_API: ${{ secrets.GEMINI_API }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
-      - name: Install dependencies
-        working-directory: backend
-        run: npm install
       - name: 🚀 Deploy Backend (Serverless Framework)
+        uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.4.1
+        with:
+          working-directory: backend
+          node-version: '24'
+          deploy-command: npx serverless deploy --verbose
+          workspaces: 'true'
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: serverless info
         working-directory: backend
-        run: |
-          npx serverless deploy --verbose
-          npx serverless info --verbose
+        run: npx serverless info --verbose
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          GEMINI_API: ${{ secrets.GEMINI_API }}
       - name: 🌱 Seed Database
         working-directory: backend
         run: node seed.js
