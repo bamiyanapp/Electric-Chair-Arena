@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   ci:
-    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.4.1
+    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.5.1
     with:
       frontend_dir: frontend
       backend_dir: backend
@@ -24,6 +24,7 @@ jobs:
       duplication_threshold: 2
       coverage_threshold: 90
       coverage_metrics: 'statements,functions,lines'
+      coverage_check_per_file: true
       enable_e2e_test: true
       e2e_coverage_threshold: 50
       e2e_coverage_metrics: 'statements,functions,lines'
