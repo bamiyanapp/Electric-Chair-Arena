@@ -1,6 +1,6 @@
 service: electric-chair-arena-backend
 
-frameworkVersion: '3'
+frameworkVersion: '4'
 
 provider:
   name: aws
