@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { GAME_RULES } from '@/constants/rules';
+import formatBuildTime from '@/lib/formatBuildTime.js';
 
 const DEFAULT_API_URL = 'http://localhost:3000/dev';
 let hasWarnedMissingApiUrl = false;
@@ -1290,6 +1291,9 @@ export function HomeContent() {
             />
             <h1 className="text-2xl sm:text-4xl font-bold text-gray-900 tracking-tight">Electric Chair Arena</h1>
             <p className="text-xs sm:text-sm text-gray-600">AIプレイヤー対戦シミュレーター</p>
+            <p className="text-[10px] sm:text-xs text-gray-400">
+              v{process.env.NEXT_PUBLIC_APP_VERSION} / 更新日時: {formatBuildTime(process.env.NEXT_PUBLIC_APP_BUILD_TIME ?? '')}
+            </p>
           </header>
         )}
 

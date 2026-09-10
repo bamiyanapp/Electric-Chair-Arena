@@ -1,7 +1,13 @@
 /* global process */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
 const repoName = (isGithubActions && process.env.GITHUB_REPOSITORY) ? process.env.GITHUB_REPOSITORY.split('/')[1] : '';
+const packageJsonPath = join(dirname(fileURLToPath(import.meta.url)), 'package.json');
+const { version: appVersion } = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+const appBuildTime = new Date().toISOString();
 
 /** @type {import('next').NextConfig} */
 const basePath = isGithubActions ? `/${repoName}` : '';
@@ -28,6 +34,8 @@ const nextConfig = {
   trailingSlash: true,
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
+    NEXT_PUBLIC_APP_VERSION: appVersion,
+    NEXT_PUBLIC_APP_BUILD_TIME: appBuildTime,
   },
   images: {
     unoptimized: true,
