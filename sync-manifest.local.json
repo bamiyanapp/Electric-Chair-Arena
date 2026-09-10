@@ -2,6 +2,7 @@
   "symlinks": [
     { "source": "shared/sfx/click.mp3", "target": "frontend/public/fix.mp3" },
     { "source": "shared/sfx/shock.mp3", "target": "frontend/public/Electric_Shock.mp3" },
-    { "source": "shared/sfx/success-2.mp3", "target": "frontend/public/success.mp3" }
+    { "source": "shared/sfx/success-2.mp3", "target": "frontend/public/success.mp3" },
+    { "source": "shared/ui/formatBuildTime.js", "target": "frontend/src/lib/formatBuildTime.js" }
   ]
 }
