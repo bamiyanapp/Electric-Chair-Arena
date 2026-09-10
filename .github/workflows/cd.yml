@@ -30,6 +30,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # frontend/配下にdev-standards/shared/配下を指すsymlink
+          # （sync-manifest.local.json参照）があり、submoduleの中身が
+          # チェックアウトされていないとビルド時にリンク先を解決できず
+          # 失敗するため必須（#307）。
+          submodules: true
       - name: 🚀 Deploy to GitHub Pages
         id: deploy
         uses: bamiyanapp/dev-standards/.github/actions/deploy-github-pages@v2.12.0
