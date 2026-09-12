@@ -38,7 +38,7 @@ jobs:
           submodules: true
       - name: 🚀 Deploy to GitHub Pages
         id: deploy
-        uses: bamiyanapp/dev-standards/.github/actions/deploy-github-pages@v2.13.0
+        uses: bamiyanapp/dev-standards/.github/actions/deploy-github-pages@v2.14.0
         with:
           working-directory: frontend
           artifact-path: frontend/out
@@ -58,7 +58,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
       - name: 🚀 Deploy Backend (Serverless Framework)
-        uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.13.0
+        uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.14.0
         with:
           working-directory: backend
           node-version: '24'
