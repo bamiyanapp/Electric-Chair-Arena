@@ -237,9 +237,8 @@ function computeChairContinuationValues(remainingChairs, chooserScore, chooserSh
 
     // 安全に着地: chooserの得点がc増え、役割は次ターンで反転する
     // (今回のchooserが次回はsetterになる)
-    const safeSelfValue = solveEndgameValue(
-      nextRemaining, setterScore, setterShocks, chooserScore + c, chooserShocks, !chooserIsSelf, memo
-    );
+    // eslint-disable-next-line sonarjs/arguments-order
+    const safeSelfValue = solveEndgameValue(nextRemaining, setterScore, setterShocks, chooserScore + c, chooserShocks, !chooserIsSelf, memo);
     // 感電: chooserの得点は0にリセットされ感電数が1増える
     const shockedSelfValue = solveEndgameValue(
       nextRemaining, setterScore, setterShocks, 0, chooserShocks + 1, !chooserIsSelf, memo
@@ -433,16 +432,19 @@ function getNashMove(playerId, role, remainingChairs, matchState = {}) {
       }
     }
 
-    const reasoning = isOpponentOneShockFromLosing
-      ? `相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、` +
-        `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
-      : useOpponentModel
-        ? `対戦相手の行動傾向(観測${observedOpponentCount}件)を考慮し、` +
-          `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
-        : usedEndgameLookahead
-          ? `ナッシュ均衡分析（終盤の先読み）により、最も期待値の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`
-          : `ナッシュ均衡分析により、ゲームの値 ${gameValue.toFixed(2)} を考慮して` +
-            `期待得点の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+    let reasoning;
+    if (isOpponentOneShockFromLosing) {
+      reasoning = `相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、` +
+        `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+    } else if (useOpponentModel) {
+      reasoning = `対戦相手の行動傾向(観測${observedOpponentCount}件)を考慮し、` +
+        `選ばれやすい椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+    } else if (usedEndgameLookahead) {
+      reasoning = `ナッシュ均衡分析（終盤の先読み）により、最も期待値の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+    } else {
+      reasoning = `ナッシュ均衡分析により、ゲームの値 ${gameValue.toFixed(2)} を考慮して` +
+        `期待得点の高い椅子 (${setChairs.join(',')}) に電流を仕掛けます。`;
+    }
 
     return { setChairs, reasoning };
   } else {

@@ -151,7 +151,7 @@ describe('computeSetterBestResponse', () => {
 
     expect(result).toContain(5);
     expect(result).toContain(4);
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
   });
 
   it('should handle uniform distribution', () => {
@@ -163,7 +163,7 @@ describe('computeSetterBestResponse', () => {
 
     expect(result).toContain(4);
     expect(result).toContain(3);
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
   });
 
   it('should handle numToSet larger than available chairs', () => {
@@ -173,7 +173,7 @@ describe('computeSetterBestResponse', () => {
 
     const result = computeSetterBestResponse(chairs, 3, chooseCounts, totalChooses);
 
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
     expect(result).toContain(2);
     expect(result).toContain(1);
   });
@@ -185,7 +185,7 @@ describe('computeSetterBestResponse', () => {
 
     const result = computeSetterBestResponse(chairs, 2, chooseCounts, totalChooses);
 
-    expect(result.length).toBe(2);
+    expect(result).toHaveLength(2);
   });
 
   it('should handle single chair', () => {
@@ -205,7 +205,7 @@ describe('computeSetterBestResponse', () => {
 
     const result = computeSetterBestResponse(chairs, 1, chooseCounts, totalChooses);
 
-    expect(result.length).toBe(1);
+    expect(result).toHaveLength(1);
     // q_i * v_i: chair1=0.5, chair2=0.667, chair3=0.5 → chair2が最高
     expect(result).toContain(2);
   });
@@ -322,7 +322,7 @@ describe('getNashMove', () => {
     expect(result).toHaveProperty('setChairs');
     expect(result).toHaveProperty('reasoning');
     expect(Array.isArray(result.setChairs)).toBe(true);
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
@@ -359,7 +359,7 @@ describe('getNashMove', () => {
   it('should handle two chairs for setter', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
@@ -393,8 +393,8 @@ describe('getNashMove', () => {
     const result1 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
     const result2 = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
 
-    expect(result1.setChairs.length).toBe(1);
-    expect(result2.setChairs.length).toBe(1);
+    expect(result1.setChairs).toHaveLength(1);
+    expect(result2.setChairs).toHaveLength(1);
     expect(result1.reasoning).toContain('ナッシュ均衡');
     expect(result2.reasoning).toContain('ナッシュ均衡');
   });
@@ -412,7 +412,7 @@ describe('getNashMove', () => {
     const resultSetter = getNashMove('ai-nash', 'set', chairs);
     const resultChooser = getNashMove('ai-nash', 'choose', chairs);
 
-    expect(resultSetter.setChairs.length).toBe(1);
+    expect(resultSetter.setChairs).toHaveLength(1);
     expect(resultChooser.chosenChair).toBeGreaterThanOrEqual(1);
     expect(resultChooser.chosenChair).toBeLessThanOrEqual(4);
   });
@@ -420,56 +420,56 @@ describe('getNashMove', () => {
   it('should handle three chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle four chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle five chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle six chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle seven chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle eight chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle nine chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
   it('should handle ten chairs for setter with numToSet=1', () => {
     const result = getNashMove('ai-nash', 'set', [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
-    expect(result.setChairs.length).toBe(1);
+    expect(result.setChairs).toHaveLength(1);
     expect(result.reasoning).toContain('ナッシュ均衡');
   });
 
@@ -803,6 +803,7 @@ describe('getNashMove reflects observed opponent tendencies (opponentHistory, is
       // (固定の1回の履歴に対して繰り返し判断すると、少数観測ゆえの偶然の偏りが
       // そのまま観測されてしまい、平均的な挙動の検証にならない)
       const unbiasedActions = Array.from({ length: 6 }, () => ({
+        // eslint-disable-next-line sonarjs/pseudo-random
         chosenChair: chairs[Math.floor(Math.random() * chairs.length)],
         availableChairs: chairs,
       }));

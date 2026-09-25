@@ -11,10 +11,13 @@ import Module from 'module';
 const requireFromHere = createRequire(import.meta.url);
 const genaiPath = requireFromHere.resolve('@google/genai');
 
+// テスト内で引数を受け取るモック実装へ再代入されるため、デフォルト実装は
+// 引数を受け取らない
 let currentGenerateContent = async () => ({ text: '' });
 
 class FakeGoogleGenAI {
   constructor() {
+    // eslint-disable-next-line sonarjs/no-extra-arguments
     this.models = { generateContent: (...args) => currentGenerateContent(...args) };
   }
 }

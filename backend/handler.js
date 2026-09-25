@@ -909,7 +909,14 @@ module.exports.saveMatch = async (event) => {
       const isDraw = winnerId === 'draw';
       const humanRating = 1500;
 
-      const actualAi = isAiWinner ? 1 : isDraw ? 0.5 : 0;
+      let actualAi;
+      if (isAiWinner) {
+        actualAi = 1;
+      } else if (isDraw) {
+        actualAi = 0.5;
+      } else {
+        actualAi = 0;
+      }
       ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
       aiRatingDiff = ratingDiff;
 

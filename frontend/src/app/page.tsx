@@ -83,6 +83,29 @@ type MatchResult = {
   logs: GameLog[];
 };
 
+// 対戦結果画面（人間対AI）の勝者表示名を解決する。
+function getResultWinnerLabel(winner: string, players: Player[]): string | undefined {
+  if (winner === 'draw') return '引き分け';
+  if (winner === 'human') return 'あなた (人間)';
+  if (winner === 'p1') return 'プレイヤー1';
+  if (winner === 'p2') return 'プレイヤー2';
+  return players.find(p => p.playerId === winner)?.name;
+}
+
+// PVPモードの勝者表示名を解決する。
+function getPvpWinnerLabel(winner: string): string {
+  if (winner === 'draw') return '引き分け';
+  if (winner === 'p1') return 'プレイヤー1';
+  return 'プレイヤー2';
+}
+
+// 人間対AIモードの勝者表示名を解決する。
+function getHumanVsAiWinnerLabel(winner: string, player2Name: string): string {
+  if (winner === 'draw') return '引き分け';
+  if (winner === 'human') return 'あなた (人間)';
+  return player2Name;
+}
+
 type MatchRecord = {
   matchId: string;
   player1Id: string;
@@ -525,7 +548,8 @@ function useSyncedView(): {
     } else {
       params.set('view', view);
     }
-    const newUrl = `${pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+    const queryString = params.toString();
+    const newUrl = queryString ? `${pathname}?${queryString}` : pathname;
     router.push(newUrl, { scroll: false });
   };
 
@@ -578,7 +602,6 @@ export function HomeContent() {
   // PVPモード用のステート
   const [pvpStage, setPvpStage] = useState<'LOBBY_START' | 'SETTING_CHAIR' | 'CONFIRM_NEXT_PLAYER' | 'CHOOSING_CHAIR' | 'REVEALING' | 'SHOW_RESULT'>('LOBBY_START');
   const [pvpSetChair, setPvpSetChair] = useState<number | null>(null);
-  const [pvpChosenChair, setPvpChosenChair] = useState<number | null>(null);
   const [pvpStatusMessage, setPvpStatusMessage] = useState<string>('');
   const [highlightedChair, setHighlightedChair] = useState<number | null>(null);
   const [shockedChair, setShockedChair] = useState<number | null>(null);
@@ -635,7 +658,6 @@ export function HomeContent() {
   // commentaryを上書きしない。
   const commentaryRequestIdRef = React.useRef(0);
 
-  // TODO: バックエンドAPIに置き換える
   const fetchCommentary = async (state: GameStateInfo, action: ActionInfo) => {
     const requestId = (commentaryRequestIdRef.current += 1);
     try {
@@ -700,9 +722,12 @@ export function HomeContent() {
       console.warn('API call failed, fallback to mock', e);
     }
 
-    // APIが呼べない場合はモック実装
+    // APIが呼べない場合はモック実装。ゲームの椅子選択用でセキュリティ非依存のため
+    // Math.random()を使用する
     return {
+      // eslint-disable-next-line sonarjs/pseudo-random
       setChairs: [remainingChairs[Math.floor(Math.random() * remainingChairs.length)]],
+      // eslint-disable-next-line sonarjs/pseudo-random
       chosenChair: remainingChairs[Math.floor(Math.random() * remainingChairs.length)],
       isFallback: true
     };
@@ -1032,7 +1057,6 @@ export function HomeContent() {
         const chosen = chair;
         const isShocked = pvpSetChair === chosen;
 
-        setPvpChosenChair(chosen);
         setPvpStage('REVEALING');
         setHighlightedChair(chosen);
         setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が${chosen}番の椅子を選択しました！ 運命の瞬間...`);
@@ -1351,15 +1375,7 @@ export function HomeContent() {
                 {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
               </h3>
               <p className="text-2xl font-bold text-blue-700">
-                {matchResult.winner === 'draw' 
-                  ? '引き分け' 
-                  : matchResult.winner === 'human' 
-                    ? 'あなた (人間)' 
-                    : matchResult.winner === 'p1'
-                      ? 'プレイヤー1'
-                      : matchResult.winner === 'p2'
-                        ? 'プレイヤー2'
-                        : players.find(p => p.playerId === matchResult.winner)?.name}
+                {getResultWinnerLabel(matchResult.winner, players)}
               </p>
             </div>
 
@@ -1514,7 +1530,6 @@ export function HomeContent() {
                       setHighlightedChair(null);
                       setShockedChair(null);
                       setPvpSetChair(null);
-                      setPvpChosenChair(null);
                       setTempNextState(null);
                       setCommentary('');
                       setLoading(false);
@@ -1540,11 +1555,7 @@ export function HomeContent() {
                       {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
                     </h3>
                     <p className="text-2xl font-bold text-orange-700">
-                      {matchResult.winner === 'draw' 
-                        ? '引き分け' 
-                        : matchResult.winner === 'p1' 
-                          ? 'プレイヤー1' 
-                          : 'プレイヤー2'}
+                      {getPvpWinnerLabel(matchResult.winner)}
                     </p>
                   </div>
                 ) : (
@@ -1613,7 +1624,6 @@ export function HomeContent() {
                                   setHighlightedChair(null);
                                   setShockedChair(null);
                                   setPvpSetChair(null);
-                                  setPvpChosenChair(null);
                                   setTempNextState(null);
                                   setCommentary('');
 
@@ -1715,11 +1725,7 @@ export function HomeContent() {
                       {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
                     </h3>
                     <p className="text-2xl font-bold text-green-700">
-                      {matchResult.winner === 'draw' 
-                        ? '引き分け' 
-                        : matchResult.winner === 'human' 
-                          ? 'あなた (人間)' 
-                          : matchResult.player2.name}
+                      {getHumanVsAiWinnerLabel(matchResult.winner, matchResult.player2.name)}
                     </p>
                   </div>
                 ) : (
