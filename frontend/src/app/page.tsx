@@ -106,12 +106,26 @@ function getHumanVsAiWinnerLabel(winner: string, player2Name: string): string {
   return player2Name;
 }
 
+type PvpStage = 'LOBBY_START' | 'SETTING_CHAIR' | 'CONFIRM_NEXT_PLAYER' | 'CHOOSING_CHAIR' | 'REVEALING' | 'SHOW_RESULT';
+type GameStep = 'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT';
+
 type TempNextState = {
   winner: string;
   newScores: { p1: number; p2: number };
   newShocks: { p1: number; p2: number };
   newLog: GameLog;
   aiSetChairs?: number[];
+};
+
+// 人間対AI戦の1ターン（仕掛け側/選ぶ側どちらか一方の処理）が確定した結果。
+type GameTurnOutcome = {
+  newScores: { p1: number; p2: number };
+  newShocks: { p1: number; p2: number };
+  nextRemainingChairs: number[];
+  chosenChair: number;
+  isShocked: boolean;
+  aiSetChairsForReveal?: number[];
+  aiReasoning?: string;
 };
 
 type MatchRecord = {
@@ -564,6 +578,14 @@ function useSyncedView(): {
   return { currentView, setCurrentView, matchTokenRef };
 }
 
+// 対戦中（ヘッダー非表示・離脱確認の対象）かどうかを判定する。
+function computeIsGameActive(currentView: ViewName, matchResult: MatchResult | null): boolean {
+  return !!(
+    (currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
+    (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp')
+  );
+}
+
 function LobbyView({
   players,
   onShowRules,
@@ -786,6 +808,147 @@ function ScoreboardsView({
   );
 }
 
+function PvpStartPanel({
+  loading,
+  onBack,
+  onStartPvp,
+}: {
+  loading: boolean;
+  onBack: () => void;
+  onStartPvp: () => void;
+}) {
+  return (
+    <>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
+        <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+      </div>
+
+      <div className="text-center mt-8">
+        <button
+          onClick={onStartPvp}
+          disabled={loading}
+          className="px-8 py-3 bg-orange-600 text-white font-bold rounded-md hover:bg-orange-700 disabled:opacity-50 transition-colors shadow-sm"
+        >
+          {loading ? '対戦準備中...' : '対戦開始'}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function PvpActiveMatch({
+  matchResult,
+  loading,
+  pvpStage,
+  pvpSetChair,
+  shockedChair,
+  highlightedChair,
+  tempNextState,
+  pvpStatusMessage,
+  onBack,
+  onChairClick,
+  onConfirmNextPlayer,
+  onConfirmTurn,
+}: {
+  matchResult: MatchResult;
+  loading: boolean;
+  pvpStage: PvpStage;
+  pvpSetChair: number | null;
+  shockedChair: number | null;
+  highlightedChair: number | null;
+  tempNextState: TempNextState | null;
+  pvpStatusMessage: string;
+  onBack: () => void;
+  onChairClick: (chair: number) => void;
+  onConfirmNextPlayer: () => void;
+  onConfirmTurn: () => void;
+}) {
+  return (
+    <div className="">
+      <div className="mb-6">
+        <BaseballScoreboard match={matchResult} />
+      </div>
+
+      {matchResult.winner && (pvpStage === 'SHOW_RESULT' || pvpStage === 'LOBBY_START') ? (
+        <div className="text-center p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl mb-6 border border-orange-100">
+          <h3 className="text-3xl font-black text-amber-900 mb-2">
+            {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+          </h3>
+          <p className="text-2xl font-bold text-orange-700">
+            {getPvpWinnerLabel(matchResult.winner)}
+          </p>
+        </div>
+      ) : (
+        <div className="text-center">
+          <div className="mb-4">
+            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
+              第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
+            </span>
+            <span className="text-xs text-gray-500">
+              {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+              (P1あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点 / P2あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p2)}点)
+            </span>
+          </div>
+
+          <ChairBoard
+            remainingChairs={getCurrentRemainingChairs(matchResult)}
+            logs={matchResult.logs}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            getExtraStatus={(chair) => {
+              if (pvpStage === 'SHOW_RESULT' && pvpSetChair === chair) return 'AI_TRAP_REVEALED';
+              return null;
+            }}
+            isDisabled={(_chair, isAvailable) => !isAvailable || loading || (pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR')}
+            onChairClick={onChairClick}
+            overlay={
+              <>
+                {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
+                    <button
+                      onClick={onConfirmNextPlayer}
+                      className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                    >
+                      準備完了 (画面を渡しました)
+                    </button>
+                  </div>
+                )}
+
+                {pvpStage === 'SHOW_RESULT' && tempNextState && (
+                  <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
+                    <button
+                      onClick={onConfirmTurn}
+                      className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                    >
+                      {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                    </button>
+                  </div>
+                )}
+              </>
+            }
+          />
+
+          <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
+            <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-orange-100 transition-all ${
+              pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
+            }`}>
+              {pvpStatusMessage}
+            </p>
+          </div>
+
+        </div>
+      )}
+
+      <div className="mt-8 text-center border-t pt-4">
+        <button onClick={onBack} className="text-gray-500 hover:underline">
+          ロビーへ戻る
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PvpGameView({
   matchResult,
   loading,
@@ -803,7 +966,7 @@ function PvpGameView({
 }: {
   matchResult: MatchResult | null;
   loading: boolean;
-  pvpStage: 'LOBBY_START' | 'SETTING_CHAIR' | 'CONFIRM_NEXT_PLAYER' | 'CHOOSING_CHAIR' | 'REVEALING' | 'SHOW_RESULT';
+  pvpStage: PvpStage;
   pvpSetChair: number | null;
   shockedChair: number | null;
   highlightedChair: number | null;
@@ -818,108 +981,212 @@ function PvpGameView({
   return (
     <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
       {(!matchResult || matchResult.mode !== 'pvp') && (
-        <>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
-            <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-          </div>
-
-          <div className="text-center mt-8">
-            <button
-              onClick={onStartPvp}
-              disabled={loading}
-              className="px-8 py-3 bg-orange-600 text-white font-bold rounded-md hover:bg-orange-700 disabled:opacity-50 transition-colors shadow-sm"
-            >
-              {loading ? '対戦準備中...' : '対戦開始'}
-            </button>
-          </div>
-        </>
+        <PvpStartPanel loading={loading} onBack={onBack} onStartPvp={onStartPvp} />
       )}
 
       {matchResult && matchResult.mode === 'pvp' && (
-        <div className="">
-          <div className="mb-6">
-            <BaseballScoreboard match={matchResult} />
+        <PvpActiveMatch
+          matchResult={matchResult}
+          loading={loading}
+          pvpStage={pvpStage}
+          pvpSetChair={pvpSetChair}
+          shockedChair={shockedChair}
+          highlightedChair={highlightedChair}
+          tempNextState={tempNextState}
+          pvpStatusMessage={pvpStatusMessage}
+          onBack={onBack}
+          onChairClick={onChairClick}
+          onConfirmNextPlayer={onConfirmNextPlayer}
+          onConfirmTurn={onConfirmTurn}
+        />
+      )}
+    </section>
+  );
+}
+
+function HumanVsAiSetupPanel({
+  players,
+  player2Id,
+  onPlayer2IdChange,
+  loading,
+  onStartMatch,
+  onBack,
+}: {
+  players: Player[];
+  player2Id: string;
+  onPlayer2IdChange: (id: string) => void;
+  loading: boolean;
+  onStartMatch: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold">人間対AI モード</h2>
+        <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
+          <select
+            value={player2Id}
+            onChange={(e) => onPlayer2IdChange(e.target.value)}
+            className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
+          >
+            {players.map(p => (
+              <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
+            ))}
+          </select>
+          {AI_DESCRIPTIONS[player2Id] && (
+            <p className="text-xs text-gray-500 mt-2">{AI_DESCRIPTIONS[player2Id]}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-8 flex justify-center">
+        <button
+          onClick={onStartMatch}
+          disabled={loading || !players.some(p => p.playerId === player2Id)}
+          className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
+        >
+          {loading ? '対戦準備中...' : '対戦開始'}
+        </button>
+      </div>
+    </>
+  );
+}
+
+// gameStepがIDLEの間のステータスメッセージ。手番（仕掛け側/選ぶ側）に応じて
+// 説明文を出し分ける。
+function getIdleStatusMessage(matchResult: MatchResult): string {
+  const turn = matchResult.logs.length + 1;
+  return turn % 2 !== 0
+    ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)'
+    : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
+}
+
+function HumanVsAiActiveMatch({
+  isGameActive,
+  matchResult,
+  error,
+  gameStep,
+  shockedChair,
+  highlightedChair,
+  tempNextState,
+  statusMessage,
+  commentary,
+  loading,
+  onBack,
+  onChairClick,
+  onConfirmTurn,
+}: {
+  isGameActive: boolean;
+  matchResult: MatchResult;
+  error: string;
+  gameStep: GameStep;
+  shockedChair: number | null;
+  highlightedChair: number | null;
+  tempNextState: TempNextState | null;
+  statusMessage: string;
+  commentary: string;
+  loading: boolean;
+  onBack: () => void;
+  onChairClick: (chair: number) => void;
+  onConfirmTurn: () => void;
+}) {
+  return (
+    <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
+      {error && (
+        <div role="status" aria-live="polite" className="mb-4 text-center text-sm font-bold text-amber-900 bg-amber-100 border border-amber-300 rounded-lg py-2 px-3">
+          ⚠️ {error}
+        </div>
+      )}
+      <div className="mb-6">
+        <BaseballScoreboard match={matchResult} />
+      </div>
+
+      {matchResult.winner && gameStep === 'IDLE' ? (
+        <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
+          <h3 className="text-3xl font-black text-emerald-900 mb-2">
+            {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+          </h3>
+          <p className="text-2xl font-bold text-green-700">
+            {getHumanVsAiWinnerLabel(matchResult.winner, matchResult.player2.name)}
+          </p>
+        </div>
+      ) : (
+        <div className="text-center">
+          <div className="mb-4">
+            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
+              第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
+            </span>
+            <span className="text-xs text-gray-500">
+              {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+              (あなた: あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点)
+            </span>
           </div>
 
-          {matchResult.winner && (pvpStage === 'SHOW_RESULT' || pvpStage === 'LOBBY_START') ? (
-            <div className="text-center p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl mb-6 border border-orange-100">
-              <h3 className="text-3xl font-black text-amber-900 mb-2">
-                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
-              </h3>
-              <p className="text-2xl font-bold text-orange-700">
-                {getPvpWinnerLabel(matchResult.winner)}
-              </p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <div className="mb-4">
-                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
-                  第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
-                </span>
-                <span className="text-xs text-gray-500">
-                  {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
-                  (P1あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点 / P2あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p2)}点)
-                </span>
-              </div>
+          <ChairBoard
+            remainingChairs={getCurrentRemainingChairs(matchResult)}
+            logs={matchResult.logs}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            getExtraStatus={(chair) => {
+              if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
+              if (gameStep === 'AI_THINKING' && highlightedChair === chair) return 'TRAP_SET';
+              return null;
+            }}
+            isDisabled={(_chair, isAvailable) => !isAvailable || gameStep !== 'IDLE' || loading}
+            onChairClick={onChairClick}
+            overlay={
+              gameStep === 'SHOW_RESULT' && tempNextState && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
+                  <button
+                    onClick={onConfirmTurn}
+                    className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                  >
+                    {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                  </button>
+                </div>
+              )
+            }
+          />
 
-              <ChairBoard
-                remainingChairs={getCurrentRemainingChairs(matchResult)}
-                logs={matchResult.logs}
-                shockedChair={shockedChair}
-                highlightedChair={highlightedChair}
-                getExtraStatus={(chair) => {
-                  if (pvpStage === 'SHOW_RESULT' && pvpSetChair === chair) return 'AI_TRAP_REVEALED';
-                  return null;
-                }}
-                isDisabled={(_chair, isAvailable) => !isAvailable || loading || (pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR')}
-                onChairClick={onChairClick}
-                overlay={
-                  <>
-                    {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
-                        <button
-                          onClick={onConfirmNextPlayer}
-                          className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                        >
-                          準備完了 (画面を渡しました)
-                        </button>
-                      </div>
-                    )}
+          {/* ゲームステータスメッセージ */}
+          <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
+            <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
+              gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
+            }`}>
+              {gameStep === 'IDLE' ? getIdleStatusMessage(matchResult) : statusMessage}
+            </p>
+          </div>
 
-                    {pvpStage === 'SHOW_RESULT' && tempNextState && (
-                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
-                        <button
-                          onClick={onConfirmTurn}
-                          className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                        >
-                          {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                }
-              />
-
-              <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
-                <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-orange-100 transition-all ${
-                  pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
-                }`}>
-                  {pvpStatusMessage}
-                </p>
-              </div>
-
+          {/* AIの心の声(reasoning)。仕掛け側の分もこの時点では既に本人の選択が
+              確定した後のため、事前に見せてしまうネタバレにはならない。 */}
+          {gameStep === 'SHOW_RESULT' && tempNextState?.newLog.reasoning && (
+            <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-white border-2 border-purple-200 text-gray-800 p-4 rounded-xl shadow-sm text-sm sm:text-base animate-fade-in text-left">
+              <span className="font-bold text-purple-700">🗯️ {matchResult.player2.name}: </span>
+              {tempNextState.newLog.reasoning}
             </div>
           )}
 
-          <div className="mt-8 text-center border-t pt-4">
-            <button onClick={onBack} className="text-gray-500 hover:underline">
-              ロビーへ戻る
-            </button>
-          </div>
+          {/* 実況エリア */}
+          {commentary && (
+            <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
+              {commentary}
+            </div>
+          )}
         </div>
       )}
-    </section>
+
+      {/* 戻るリンクを最下部に移動 */}
+      <div className="mt-8 text-center border-t pt-4">
+        <button onClick={onBack} className="text-gray-500 hover:underline">
+          ロビーへ戻る
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -950,7 +1217,7 @@ function HumanVsAiGameView({
   loading: boolean;
   onStartMatch: () => void;
   error: string;
-  gameStep: 'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT';
+  gameStep: GameStep;
   shockedChair: number | null;
   highlightedChair: number | null;
   tempNextState: TempNextState | null;
@@ -964,145 +1231,32 @@ function HumanVsAiGameView({
     <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
       {/* ゲームアクティブでないときだけ表示する要素 */}
       {!isGameActive && (
-        <>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold">人間対AI モード</h2>
-            <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
-              <select
-                value={player2Id}
-                onChange={(e) => onPlayer2IdChange(e.target.value)}
-                className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
-              >
-                {players.map(p => (
-                  <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
-                ))}
-              </select>
-              {AI_DESCRIPTIONS[player2Id] && (
-                <p className="text-xs text-gray-500 mt-2">{AI_DESCRIPTIONS[player2Id]}</p>
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {!isGameActive && (
-        <div className="mt-8 flex justify-center">
-          <button
-            onClick={onStartMatch}
-            disabled={loading || !players.some(p => p.playerId === player2Id)}
-            className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
-          >
-            {loading ? '対戦準備中...' : '対戦開始'}
-          </button>
-        </div>
+        <HumanVsAiSetupPanel
+          players={players}
+          player2Id={player2Id}
+          onPlayer2IdChange={onPlayer2IdChange}
+          loading={loading}
+          onStartMatch={onStartMatch}
+          onBack={onBack}
+        />
       )}
 
       {matchResult && matchResult.mode === 'human' && (
-        <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
-          {error && (
-            <div role="status" aria-live="polite" className="mb-4 text-center text-sm font-bold text-amber-900 bg-amber-100 border border-amber-300 rounded-lg py-2 px-3">
-              ⚠️ {error}
-            </div>
-          )}
-          <div className="mb-6">
-            <BaseballScoreboard match={matchResult} />
-          </div>
-
-          {matchResult.winner && gameStep === 'IDLE' ? (
-            <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
-              <h3 className="text-3xl font-black text-emerald-900 mb-2">
-                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
-              </h3>
-              <p className="text-2xl font-bold text-green-700">
-                {getHumanVsAiWinnerLabel(matchResult.winner, matchResult.player2.name)}
-              </p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <div className="mb-4">
-                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
-                  第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
-                </span>
-                <span className="text-xs text-gray-500">
-                  {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
-                  (あなた: あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点)
-                </span>
-              </div>
-
-              <ChairBoard
-                remainingChairs={getCurrentRemainingChairs(matchResult)}
-                logs={matchResult.logs}
-                shockedChair={shockedChair}
-                highlightedChair={highlightedChair}
-                getExtraStatus={(chair) => {
-                  if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
-                  if (gameStep === 'AI_THINKING' && highlightedChair === chair) return 'TRAP_SET';
-                  return null;
-                }}
-                isDisabled={(_chair, isAvailable) => !isAvailable || gameStep !== 'IDLE' || loading}
-                onChairClick={onChairClick}
-                overlay={
-                  gameStep === 'SHOW_RESULT' && tempNextState && (
-                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
-                      <button
-                        onClick={onConfirmTurn}
-                        className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                      >
-                        {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
-                      </button>
-                    </div>
-                  )
-                }
-              />
-
-              {/* ゲームステータスメッセージ */}
-              <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
-                <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
-                  gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
-                }`}>
-                  {gameStep === 'IDLE' ? (
-                    (() => {
-                      const turn = matchResult.logs.length + 1;
-                      return turn % 2 !== 0
-                        ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)'
-                        : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
-                    })()
-                  ) : (
-                    statusMessage
-                  )}
-                </p>
-              </div>
-
-              {/* AIの心の声(reasoning)。仕掛け側の分もこの時点では既に本人の選択が
-                  確定した後のため、事前に見せてしまうネタバレにはならない。 */}
-              {gameStep === 'SHOW_RESULT' && tempNextState?.newLog.reasoning && (
-                <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-white border-2 border-purple-200 text-gray-800 p-4 rounded-xl shadow-sm text-sm sm:text-base animate-fade-in text-left">
-                  <span className="font-bold text-purple-700">🗯️ {matchResult.player2.name}: </span>
-                  {tempNextState.newLog.reasoning}
-                </div>
-              )}
-
-              {/* 実況エリア */}
-              {commentary && (
-                <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
-                  {commentary}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 戻るリンクを最下部に移動 */}
-          <div className="mt-8 text-center border-t pt-4">
-            <button onClick={onBack} className="text-gray-500 hover:underline">
-              ロビーへ戻る
-            </button>
-          </div>
-        </div>
+        <HumanVsAiActiveMatch
+          isGameActive={isGameActive}
+          matchResult={matchResult}
+          error={error}
+          gameStep={gameStep}
+          shockedChair={shockedChair}
+          highlightedChair={highlightedChair}
+          tempNextState={tempNextState}
+          statusMessage={statusMessage}
+          commentary={commentary}
+          loading={loading}
+          onBack={onBack}
+          onChairClick={onChairClick}
+          onConfirmTurn={onConfirmTurn}
+        />
       )}
     </section>
   );
@@ -1148,11 +1302,11 @@ export function HomeContent() {
   };
 
   // 人間対AIモードでの演出管理ステート
-  const [gameStep, setGameStep] = useState<'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT'>('IDLE');
+  const [gameStep, setGameStep] = useState<GameStep>('IDLE');
   const [statusMessage, setStatusMessage] = useState<string>('');
 
   // PVPモード用のステート
-  const [pvpStage, setPvpStage] = useState<'LOBBY_START' | 'SETTING_CHAIR' | 'CONFIRM_NEXT_PLAYER' | 'CHOOSING_CHAIR' | 'REVEALING' | 'SHOW_RESULT'>('LOBBY_START');
+  const [pvpStage, setPvpStage] = useState<PvpStage>('LOBBY_START');
   const [pvpSetChair, setPvpSetChair] = useState<number | null>(null);
   const [pvpStatusMessage, setPvpStatusMessage] = useState<string>('');
   const [highlightedChair, setHighlightedChair] = useState<number | null>(null);
@@ -1487,8 +1641,7 @@ export function HomeContent() {
     });
   }, []);
 
-  const isGameActive = !!((currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
-                       (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp'));
+  const isGameActive = computeIsGameActive(currentView, matchResult);
 
   // 復帰確認待ち(resumableMatchの提示中〜ユーザーが選択するまで)の間、直後にマウントする
   // 保存用effectがsessionStorageを上書き/削除してしまわないようにするガード。
@@ -1649,6 +1802,77 @@ export function HomeContent() {
     }
   };
 
+  // プレイヤーが椅子に電流を仕掛ける（pvpStage: LOBBY_START）。
+  const handlePvpSetChair = (chair: number, isP1Setter: boolean) => {
+    setPvpSetChair(chair);
+    setPvpStage('CONFIRM_NEXT_PLAYER');
+    setPvpStatusMessage(`${isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が椅子に仕掛けました。画面を${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}に渡して、「準備完了」を押してください。`);
+  };
+
+  // もう一人のプレイヤーが座る椅子を選ぶ（pvpStage: CHOOSING_CHAIR）。
+  const handlePvpChooseChair = async (
+    chair: number,
+    turn: number,
+    isP1Setter: boolean,
+    matchResult: MatchResult,
+    token: number,
+    currentRemainingChairs: number[]
+  ) => {
+    const chosen = chair;
+    const isShocked = pvpSetChair === chosen;
+
+    setPvpStage('REVEALING');
+    setHighlightedChair(chosen);
+    setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が${chosen}番の椅子を選択しました！ 運命の瞬間...`);
+
+    await sleep(1500);
+    if (matchTokenRef.current !== token) return;
+
+    const newScores = { ...matchResult.scores };
+    const newShocks = { ...matchResult.shocks };
+    let nextRemainingChairs = [...currentRemainingChairs];
+
+    if (isShocked) {
+      setShockedChair(chosen);
+      if (!isP1Setter) {
+        newShocks.p1 += 1;
+        newScores.p1 = 0;
+      } else {
+        newShocks.p2 += 1;
+        newScores.p2 = 0;
+      }
+      playSound('/Electric_Shock.mp3');
+      setPvpStatusMessage(`⚡ ビリビリ！ ${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}は椅子 ${chosen} を選び、感電しました！`);
+    } else {
+      if (!isP1Setter) {
+        newScores.p1 += chosen;
+      } else {
+        newScores.p2 += chosen;
+      }
+      playSound('/success.mp3');
+      setPvpStatusMessage(`🎉 セーフ！ ${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}は椅子 ${chosen} を選びました。(+${chosen}点)`);
+    }
+    nextRemainingChairs = nextRemainingChairs.filter(c => c !== chosen);
+
+    const winner = resolveWinner(newScores, newShocks, nextRemainingChairs.length, { p1: 'p1', p2: 'p2' });
+
+    setTempNextState({
+      winner,
+      newScores,
+      newShocks,
+      newLog: {
+        turn,
+        isHumanSetter: isP1Setter,
+        chosenChair: chosen,
+        isShocked,
+        remainingChairs: nextRemainingChairs,
+        scores: newScores,
+        shocks: newShocks
+      }
+    });
+    setPvpStage('SHOW_RESULT');
+  };
+
   const handlePvpChairClick = async (chair: number) => {
     if (!matchResult || loading) return;
     const token = matchTokenRef.current;
@@ -1660,70 +1884,9 @@ export function HomeContent() {
       const isP1Setter = turn % 2 !== 0;
 
       if (pvpStage === 'LOBBY_START') {
-        // プレイヤーが椅子に仕掛ける
-        setPvpSetChair(chair);
-        setPvpStage('CONFIRM_NEXT_PLAYER');
-        setPvpStatusMessage(`${isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が椅子に仕掛けました。画面を${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}に渡して、「準備完了」を押してください。`);
+        handlePvpSetChair(chair, isP1Setter);
       } else if (pvpStage === 'CHOOSING_CHAIR') {
-        // もう一人のプレイヤーが座る椅子を選ぶ
-        const chosen = chair;
-        const isShocked = pvpSetChair === chosen;
-
-        setPvpStage('REVEALING');
-        setHighlightedChair(chosen);
-        setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が${chosen}番の椅子を選択しました！ 運命の瞬間...`);
-
-        await sleep(1500);
-        if (matchTokenRef.current !== token) return;
-
-        const newScores = { ...matchResult.scores };
-        const newShocks = { ...matchResult.shocks };
-        let nextRemainingChairs = [...currentRemainingChairs];
-
-        if (isShocked) {
-          setShockedChair(chosen);
-          if (!isP1Setter) {
-            newShocks.p1 += 1;
-            newScores.p1 = 0;
-          } else {
-            newShocks.p2 += 1;
-            newScores.p2 = 0;
-          }
-          playSound('/Electric_Shock.mp3');
-          setPvpStatusMessage(`⚡ ビリビリ！ ${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}は椅子 ${chosen} を選び、感電しました！`);
-        } else {
-          if (!isP1Setter) {
-            newScores.p1 += chosen;
-          } else {
-            newScores.p2 += chosen;
-          }
-          playSound('/success.mp3');
-          setPvpStatusMessage(`🎉 セーフ！ ${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}は椅子 ${chosen} を選びました。(+${chosen}点)`);
-        }
-        nextRemainingChairs = nextRemainingChairs.filter(c => c !== chosen);
-
-        const winner = resolveWinner(newScores, newShocks, nextRemainingChairs.length, { p1: 'p1', p2: 'p2' });
-
-        setTempNextState({
-          winner,
-          newScores,
-          newShocks,
-          newLog: {
-            turn,
-            isHumanSetter: isP1Setter,
-            chosenChair: chosen,
-            isShocked,
-            remainingChairs: nextRemainingChairs,
-            scores: newScores,
-            shocks: newShocks
-          }
-        });
-        setPvpStage('SHOW_RESULT');
-
-        // ゲーム終了時は後続の処理をスキップ
-        if (winner) {
-          return;
-        }
+        await handlePvpChooseChair(chair, turn, isP1Setter, matchResult, token, currentRemainingChairs);
       }
     } catch (e) {
       console.error(e);
@@ -1763,6 +1926,140 @@ export function HomeContent() {
     }
   };
 
+  // 【人間が仕掛け、AIが選ぶ】。tokenが古くなった場合はundefinedを返す。
+  const handleHumanSetsAiChooses = async (
+    chair: number,
+    matchResult: MatchResult,
+    token: number,
+    currentRemainingChairs: number[]
+  ): Promise<GameTurnOutcome | undefined> => {
+    setHighlightedChair(chair);
+    setGameStep('AI_THINKING');
+    setStatusMessage(`あなたは ${chair}番の椅子に電流を仕掛けました。AIが座る椅子を選んでいます...`);
+    await sleep(1500);
+    if (matchTokenRef.current !== token) return undefined;
+
+    const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', currentRemainingChairs, {
+      selfScore: matchResult.scores.p2,
+      opponentScore: matchResult.scores.p1,
+      selfShocks: matchResult.shocks.p2,
+      opponentShocks: matchResult.shocks.p1,
+    }, buildOpponentHistory(matchResult));
+    if (matchTokenRef.current !== token) return undefined;
+    setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
+    playSound('/fix.mp3');
+    const aiChosenChair = aiRes.chosenChair;
+    const aiReasoning = aiRes.reasoning;
+    const humanSetChairs = [chair];
+
+    const isShocked = humanSetChairs.includes(aiChosenChair);
+
+    setGameStep('REVEALING');
+    setHighlightedChair(aiChosenChair);
+    setStatusMessage(`AIは ${aiChosenChair}番の椅子を選択しました！ 運命の瞬間...`);
+    await sleep(1500);
+    if (matchTokenRef.current !== token) return undefined;
+
+    const newScores = { ...matchResult.scores };
+    const newShocks = { ...matchResult.shocks };
+
+    setGameStep('SHOW_RESULT');
+    if (isShocked) {
+      setShockedChair(aiChosenChair);
+      newShocks.p2 += 1;
+      newScores.p2 = 0;
+      playSound('/Electric_Shock.mp3');
+      setStatusMessage(`⚡ ビリビリ！ AIは椅子 ${aiChosenChair} を選び、感電しました！`);
+    } else {
+      newScores.p2 += aiChosenChair;
+      playSound('/success.mp3');
+      setStatusMessage(`🎉 セーフ！ AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
+    }
+    const nextRemainingChairs = currentRemainingChairs.filter(c => c !== aiChosenChair);
+
+    return { newScores, newShocks, nextRemainingChairs, chosenChair: aiChosenChair, isShocked, aiReasoning };
+  };
+
+  // 【AIが仕掛け、人間が選ぶ】。tokenが古くなった場合はundefinedを返す。
+  const handleAiSetsHumanChooses = async (
+    chair: number,
+    matchResult: MatchResult,
+    token: number,
+    currentRemainingChairs: number[]
+  ): Promise<GameTurnOutcome | undefined> => {
+    setHighlightedChair(chair);
+    setGameStep('REVEALING');
+    setStatusMessage(`あなたは ${chair}番の椅子に座ろうとしています... 電流が流れているかチェック中...`);
+    await sleep(1500);
+    if (matchTokenRef.current !== token) return undefined;
+
+    const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', currentRemainingChairs, {
+      selfScore: matchResult.scores.p2,
+      opponentScore: matchResult.scores.p1,
+      selfShocks: matchResult.shocks.p2,
+      opponentShocks: matchResult.shocks.p1,
+    }, buildOpponentHistory(matchResult));
+    if (matchTokenRef.current !== token) return undefined;
+    setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
+    playSound('/fix.mp3');
+    const aiSetChairs = aiRes.setChairs;
+    const humanChosenChair = chair;
+    const aiReasoning = aiRes.reasoning;
+
+    const isShocked = aiSetChairs.includes(humanChosenChair);
+
+    const newScores = { ...matchResult.scores };
+    const newShocks = { ...matchResult.shocks };
+
+    setGameStep('SHOW_RESULT');
+    if (isShocked) {
+      setShockedChair(humanChosenChair);
+      newShocks.p1 += 1;
+      newScores.p1 = 0;
+      playSound('/Electric_Shock.mp3');
+      setStatusMessage(`⚡ ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
+    } else {
+      newScores.p1 += humanChosenChair;
+      playSound('/success.mp3');
+      setStatusMessage(`🎉 セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
+    }
+    const nextRemainingChairs = currentRemainingChairs.filter(c => c !== humanChosenChair);
+
+    return { newScores, newShocks, nextRemainingChairs, chosenChair: humanChosenChair, isShocked, aiSetChairsForReveal: aiSetChairs, aiReasoning };
+  };
+
+  // 勝敗判定・実況取得・次状態の一時保存という、仕掛け側/選ぶ側どちらの
+  // ターンでも共通の後処理。
+  const finalizeGameTurn = (matchResult: MatchResult, turn: number, isHumanSetter: boolean, outcome: GameTurnOutcome) => {
+    const { newScores, newShocks, nextRemainingChairs, chosenChair, isShocked, aiSetChairsForReveal, aiReasoning } = outcome;
+    const winner = resolveWinner(newScores, newShocks, nextRemainingChairs.length, { p1: 'human', p2: matchResult.player2.playerId });
+
+    // 実況の取得開始
+    setCommentary('🎙️ 実況AIが状況を分析中...');
+    fetchCommentary(
+      { scores: newScores, shocks: newShocks, remainingChairs: nextRemainingChairs, winner },
+      { isHumanSetter, chosenChair, isShocked }
+    );
+
+    // 次の状態を一時的に保存
+    setTempNextState({
+      winner,
+      newScores,
+      newShocks,
+      newLog: {
+        turn,
+        isHumanSetter,
+        chosenChair,
+        isShocked,
+        remainingChairs: nextRemainingChairs,
+        scores: newScores,
+        shocks: newShocks,
+        reasoning: aiReasoning
+      },
+      aiSetChairs: aiSetChairsForReveal
+    });
+  };
+
   const handleGameChairClick = async (chair: number) => {
     if (!matchResult || loading || gameStep !== 'IDLE') return;
     const token = matchTokenRef.current;
@@ -1772,138 +2069,92 @@ export function HomeContent() {
     try {
       const turn = matchResult.logs.length + 1;
       const isHumanSetter = turn % 2 !== 0;
-      const newScores = { ...matchResult.scores };
-      const newShocks = { ...matchResult.shocks };
-      let nextRemainingChairs = [...currentRemainingChairs];
 
-      let aiChosenChair = 0;
-      let isShocked = false;
-      let aiSetChairsForReveal: number[] | undefined;
-      let aiReasoning: string | undefined;
+      const outcome = isHumanSetter
+        ? await handleHumanSetsAiChooses(chair, matchResult, token, currentRemainingChairs)
+        : await handleAiSetsHumanChooses(chair, matchResult, token, currentRemainingChairs);
 
-      if (isHumanSetter) {
-        // 【人間が仕掛け、AIが選ぶ】
-        setHighlightedChair(chair);
-        setGameStep('AI_THINKING');
-        setStatusMessage(`あなたは ${chair}番の椅子に電流を仕掛けました。AIが座る椅子を選んでいます...`);
-        await sleep(1500);
-        if (matchTokenRef.current !== token) return;
+      if (!outcome) return;
 
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'choose', nextRemainingChairs, {
-          selfScore: matchResult.scores.p2,
-          opponentScore: matchResult.scores.p1,
-          selfShocks: matchResult.shocks.p2,
-          opponentShocks: matchResult.shocks.p1,
-        }, buildOpponentHistory(matchResult));
-        if (matchTokenRef.current !== token) return;
-        setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
-        playSound('/fix.mp3');
-        aiChosenChair = aiRes.chosenChair;
-        aiReasoning = aiRes.reasoning;
-        const humanSetChairs = [chair];
-
-        isShocked = humanSetChairs.includes(aiChosenChair);
-
-        setGameStep('REVEALING');
-        setHighlightedChair(aiChosenChair);
-        setStatusMessage(`AIは ${aiChosenChair}番の椅子を選択しました！ 運命の瞬間...`);
-        await sleep(1500);
-        if (matchTokenRef.current !== token) return;
-
-        setGameStep('SHOW_RESULT');
-        if (isShocked) {
-          setShockedChair(aiChosenChair);
-          newShocks.p2 += 1;
-          newScores.p2 = 0;
-          playSound('/Electric_Shock.mp3');
-          setStatusMessage(`⚡ ビリビリ！ AIは椅子 ${aiChosenChair} を選び、感電しました！`);
-        } else {
-          newScores.p2 += aiChosenChair;
-          playSound('/success.mp3');
-          setStatusMessage(`🎉 セーフ！ AIは椅子 ${aiChosenChair} を選びました。(+${aiChosenChair}点)`);
-        }
-        nextRemainingChairs = nextRemainingChairs.filter(c => c !== aiChosenChair);
-      } else {
-        // 【AIが仕掛け、人間が選ぶ】
-        setHighlightedChair(chair);
-        setGameStep('REVEALING');
-        setStatusMessage(`あなたは ${chair}番の椅子に座ろうとしています... 電流が流れているかチェック中...`);
-        await sleep(1500);
-        if (matchTokenRef.current !== token) return;
-
-        const aiRes = await getAiMoveMock(matchResult.player2.playerId, 'set', nextRemainingChairs, {
-          selfScore: matchResult.scores.p2,
-          opponentScore: matchResult.scores.p1,
-          selfShocks: matchResult.shocks.p2,
-          opponentShocks: matchResult.shocks.p1,
-        }, buildOpponentHistory(matchResult));
-        if (matchTokenRef.current !== token) return;
-        setError(aiRes.isFallback ? OFFLINE_FALLBACK_MESSAGE : '');
-        playSound('/fix.mp3');
-        const aiSetChairs = aiRes.setChairs;
-        const humanChosenChair = chair;
-        aiReasoning = aiRes.reasoning;
-
-        isShocked = aiSetChairs.includes(humanChosenChair);
-        aiSetChairsForReveal = aiSetChairs;
-
-        setGameStep('SHOW_RESULT');
-        if (isShocked) {
-          setShockedChair(humanChosenChair);
-          newShocks.p1 += 1;
-          newScores.p1 = 0;
-          playSound('/Electric_Shock.mp3');
-          setStatusMessage(`⚡ ビリビリ！あなたが選んだ椅子 ${humanChosenChair} には電流が仕掛けられていました！`);
-        } else {
-          newScores.p1 += humanChosenChair;
-          playSound('/success.mp3');
-          setStatusMessage(`🎉 セーフ！椅子 ${humanChosenChair} に座りました。(+${humanChosenChair}点)`);
-        }
-        nextRemainingChairs = nextRemainingChairs.filter(c => c !== humanChosenChair);
-      }
-
-      const winner = resolveWinner(newScores, newShocks, nextRemainingChairs.length, { p1: 'human', p2: matchResult.player2.playerId });
-
-      // 実況の取得開始
-      setCommentary('🎙️ 実況AIが状況を分析中...');
-      fetchCommentary(
-        {
-          scores: newScores,
-          shocks: newShocks,
-          remainingChairs: nextRemainingChairs,
-          winner
-        },
-        {
-          isHumanSetter,
-          chosenChair: isHumanSetter ? aiChosenChair : chair,
-          isShocked
-        }
-      );
-
-      // 次の状態を一時的に保存
-      setTempNextState({
-        winner,
-        newScores,
-        newShocks,
-        newLog: {
-          turn,
-          isHumanSetter,
-          chosenChair: isHumanSetter ? aiChosenChair : chair,
-          isShocked,
-          remainingChairs: nextRemainingChairs,
-          scores: newScores,
-          shocks: newShocks,
-          reasoning: aiReasoning
-        },
-        aiSetChairs: aiSetChairsForReveal
-      });
-
+      finalizeGameTurn(matchResult, turn, isHumanSetter, outcome);
     } catch (e) {
       console.error(e);
       setStatusMessage('エラーが発生しました');
       setGameStep('IDLE');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const renderCurrentView = () => {
+    switch (currentView) {
+      case 'LOBBY':
+        return (
+          <LobbyView
+            players={players}
+            onShowRules={() => setShowRulesModal(true)}
+            onStartHumanVsAi={() => setCurrentView('GAME')}
+            onStartPvp={() => setCurrentView('PVP_GAME')}
+            onShowLeaderboard={() => { fetchLeaderboard(); setCurrentView('LEADERBOARD'); }}
+            onShowScoreboards={() => { fetchMatches(); setCurrentView('SCOREBOARDS'); }}
+          />
+        );
+      case 'RESULT':
+        return matchResult && (
+          <ResultView
+            matchResult={matchResult}
+            players={players}
+            aiRatingChange={aiRatingChange}
+            onRematch={startHumanMatch}
+            onBack={handleLeaveActiveMatch}
+          />
+        );
+      case 'LEADERBOARD':
+        return <LeaderboardView leaderboard={leaderboard} onBack={handleLeaveActiveMatch} />;
+      case 'SCOREBOARDS':
+        return <ScoreboardsView matchesList={matchesList} players={players} onBack={handleLeaveActiveMatch} />;
+      case 'PVP_GAME':
+        return (
+          <PvpGameView
+            matchResult={matchResult}
+            loading={loading}
+            pvpStage={pvpStage}
+            pvpSetChair={pvpSetChair}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            tempNextState={tempNextState}
+            pvpStatusMessage={pvpStatusMessage}
+            onBack={handleLeaveActiveMatch}
+            onStartPvp={handleStartPvp}
+            onChairClick={handlePvpChairClick}
+            onConfirmNextPlayer={handlePvpConfirmNextPlayer}
+            onConfirmTurn={handlePvpConfirmTurn}
+          />
+        );
+      case 'GAME':
+        return (
+          <HumanVsAiGameView
+            isGameActive={isGameActive}
+            matchResult={matchResult}
+            players={players}
+            player2Id={player2Id}
+            onPlayer2IdChange={setPlayer2Id}
+            loading={loading}
+            onStartMatch={() => startHumanMatch(player2Id)}
+            error={error}
+            gameStep={gameStep}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            tempNextState={tempNextState}
+            statusMessage={statusMessage}
+            commentary={commentary}
+            onBack={handleLeaveActiveMatch}
+            onChairClick={handleGameChairClick}
+            onConfirmTurn={handleGameConfirmTurn}
+          />
+        );
+      default:
+        return null;
     }
   };
 
@@ -1962,74 +2213,7 @@ export function HomeContent() {
           </header>
         )}
 
-        {currentView === 'LOBBY' && (
-          <LobbyView
-            players={players}
-            onShowRules={() => setShowRulesModal(true)}
-            onStartHumanVsAi={() => setCurrentView('GAME')}
-            onStartPvp={() => setCurrentView('PVP_GAME')}
-            onShowLeaderboard={() => { fetchLeaderboard(); setCurrentView('LEADERBOARD'); }}
-            onShowScoreboards={() => { fetchMatches(); setCurrentView('SCOREBOARDS'); }}
-          />
-        )}
-
-        {currentView === 'RESULT' && matchResult && (
-          <ResultView
-            matchResult={matchResult}
-            players={players}
-            aiRatingChange={aiRatingChange}
-            onRematch={startHumanMatch}
-            onBack={handleLeaveActiveMatch}
-          />
-        )}
-
-        {currentView === 'LEADERBOARD' && (
-          <LeaderboardView leaderboard={leaderboard} onBack={handleLeaveActiveMatch} />
-        )}
-
-        {currentView === 'SCOREBOARDS' && (
-          <ScoreboardsView matchesList={matchesList} players={players} onBack={handleLeaveActiveMatch} />
-        )}
-
-        {currentView === 'PVP_GAME' && (
-          <PvpGameView
-            matchResult={matchResult}
-            loading={loading}
-            pvpStage={pvpStage}
-            pvpSetChair={pvpSetChair}
-            shockedChair={shockedChair}
-            highlightedChair={highlightedChair}
-            tempNextState={tempNextState}
-            pvpStatusMessage={pvpStatusMessage}
-            onBack={handleLeaveActiveMatch}
-            onStartPvp={handleStartPvp}
-            onChairClick={handlePvpChairClick}
-            onConfirmNextPlayer={handlePvpConfirmNextPlayer}
-            onConfirmTurn={handlePvpConfirmTurn}
-          />
-        )}
-
-        {currentView === 'GAME' && (
-          <HumanVsAiGameView
-            isGameActive={isGameActive}
-            matchResult={matchResult}
-            players={players}
-            player2Id={player2Id}
-            onPlayer2IdChange={setPlayer2Id}
-            loading={loading}
-            onStartMatch={() => startHumanMatch(player2Id)}
-            error={error}
-            gameStep={gameStep}
-            shockedChair={shockedChair}
-            highlightedChair={highlightedChair}
-            tempNextState={tempNextState}
-            statusMessage={statusMessage}
-            commentary={commentary}
-            onBack={handleLeaveActiveMatch}
-            onChairClick={handleGameChairClick}
-            onConfirmTurn={handleGameConfirmTurn}
-          />
-        )}
+        {renderCurrentView()}
 
       </div>
     </main>

@@ -696,8 +696,11 @@ describe('Home Component', () => {
     render(<HomeContent />);
     fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
 
+    // プレイヤー一覧のロード完了前（ボタンdisabled中）にクリックすると
+    // イベントが握りつぶされ後続のwaitForがタイムアウトするため、disabled
+    // 解除まで待ってからクリックする。
     await waitFor(() => {
-      expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
+      expect((screen.getAllByText('対戦開始')[0] as HTMLButtonElement).disabled).toBe(false);
     });
     fireEvent.click(screen.getAllByText('対戦開始')[0]);
 
