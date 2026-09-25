@@ -167,7 +167,7 @@ describe('Backend Handler Specification Tests', () => {
     const playerUpdateCommands = dynamoSendMock.mock.calls
       .map(([command]) => command)
       .filter((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
-    expect(playerUpdateCommands.length).toBe(2);
+    expect(playerUpdateCommands).toHaveLength(2);
     const savedPlayerIds = playerUpdateCommands.map((command) => command.input.Key.playerId).sort();
     expect(savedPlayerIds).toEqual(['ai-junior', 'ai-okano']);
   });

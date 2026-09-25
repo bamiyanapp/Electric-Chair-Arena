@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run --coverage",
     "test:e2e": "playwright test"
   },
@@ -30,6 +30,7 @@
     "autoprefixer": "10.6.1",
     "eslint": "10.11.0",
     "eslint-config-next": "16.3.6",
+    "eslint-plugin-sonarjs": "^4.2.1",
     "jsdom": "^30.0.0",
     "monocart-reporter": "^2.12.4",
     "postcss": "8.5.28",

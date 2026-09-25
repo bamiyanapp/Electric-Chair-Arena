@@ -264,7 +264,9 @@ function runBenchmark(player1Id, player2Id, games, options = {}) {
     // 半分は先手/後手を入れ替えて実行する(交互ではなく前半/後半で分けることで、
     // 実行順に依存する偏りが無いことを明確にする)
     const swap = i >= Math.floor(games / 2);
+    // 先手/後手の入れ替えのため意図的にplayer1Id/player2Idを逆順で渡す
     const { winnerId } = swap
+      // eslint-disable-next-line sonarjs/arguments-order
       ? simulateMatch(player2Id, player1Id, options)
       : simulateMatch(player1Id, player2Id, options);
 
