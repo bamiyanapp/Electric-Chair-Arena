@@ -106,6 +106,14 @@ function getHumanVsAiWinnerLabel(winner: string, player2Name: string): string {
   return player2Name;
 }
 
+type TempNextState = {
+  winner: string;
+  newScores: { p1: number; p2: number };
+  newShocks: { p1: number; p2: number };
+  newLog: GameLog;
+  aiSetChairs?: number[];
+};
+
 type MatchRecord = {
   matchId: string;
   player1Id: string;
@@ -556,6 +564,550 @@ function useSyncedView(): {
   return { currentView, setCurrentView, matchTokenRef };
 }
 
+function LobbyView({
+  players,
+  onShowRules,
+  onStartHumanVsAi,
+  onStartPvp,
+  onShowLeaderboard,
+  onShowScoreboards,
+}: {
+  players: Player[];
+  onShowRules: () => void;
+  onStartHumanVsAi: () => void;
+  onStartPvp: () => void;
+  onShowLeaderboard: () => void;
+  onShowScoreboards: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <button onClick={onShowRules} className="text-sm text-blue-600 hover:underline font-medium">📖 ルール説明</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button onClick={onStartHumanVsAi} className="p-6 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition">
+          <h3 className="text-xl font-bold mb-2">人間対AI</h3>
+          <p className="text-sm opacity-90">あなたがAIと対戦します</p>
+        </button>
+        <button onClick={onStartPvp} className="p-6 bg-orange-600 text-white rounded-xl shadow hover:bg-orange-700 transition">
+          <h3 className="text-xl font-bold mb-2">人対人 (ローカル)</h3>
+          <p className="text-sm opacity-90">1台のデバイスで交互に操作して2人対戦を行います</p>
+        </button>
+        <button onClick={onShowLeaderboard} className="p-6 bg-purple-600 text-white rounded-xl shadow hover:bg-purple-700 transition">
+          <h3 className="text-xl font-bold mb-2">ランキング</h3>
+          <p className="text-sm opacity-90">AIプレイヤーのレーティングランキング</p>
+        </button>
+        <button onClick={onShowScoreboards} className="p-6 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition">
+          <h3 className="text-xl font-bold mb-2">過去のスコアボード一覧</h3>
+          <p className="text-sm opacity-90">これまでの対戦履歴とスコアボードを確認します</p>
+        </button>
+      </div>
+
+      <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <h2 className="text-2xl font-semibold mb-4">登録プレイヤー一覧</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {players.map(p => (
+            <div key={p.playerId} className="p-4 border rounded-lg bg-gray-50">
+              <div className="font-bold">{p.name}</div>
+              <div className="text-sm text-gray-600">Type: {p.type}</div>
+              <div className="text-sm text-gray-600">Rate: {p.rating}</div>
+              {AI_DESCRIPTIONS[p.playerId] && (
+                <div className="text-xs text-gray-500 mt-1">{AI_DESCRIPTIONS[p.playerId]}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ResultView({
+  matchResult,
+  players,
+  aiRatingChange,
+  onRematch,
+  onBack,
+}: {
+  matchResult: MatchResult;
+  players: Player[];
+  aiRatingChange: { before: number; diff: number } | null;
+  onRematch: (opponentId: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold">対戦結果</h2>
+        <button onClick={onBack} className="text-blue-600 hover:underline font-medium">ロビーへ戻る</button>
+      </div>
+
+      <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl mb-6 border border-blue-100 text-center">
+        <h3 className="text-3xl font-black text-indigo-900 mb-2">
+          {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+        </h3>
+        <p className="text-2xl font-bold text-blue-700">
+          {getResultWinnerLabel(matchResult.winner, players)}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 text-center mb-8">
+        <div className="p-4 border rounded-lg bg-gray-50">
+          <div className="font-bold text-lg mb-2">{matchResult.player1.name}</div>
+          <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p1} pt</div>
+          <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p1}</div>
+        </div>
+        <div className="p-4 border rounded-lg bg-gray-50">
+          <div className="font-bold text-lg mb-2">{matchResult.player2.name}</div>
+          <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p2} pt</div>
+          <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p2}</div>
+        </div>
+      </div>
+
+      {matchResult.mode === 'human' && aiRatingChange && (
+        <div className="text-center mb-8 text-sm text-gray-600">
+          {matchResult.player2.name}のレーティング: {aiRatingChange.before} → {aiRatingChange.before + aiRatingChange.diff}
+          {' '}({aiRatingChange.diff >= 0 ? '+' : ''}{aiRatingChange.diff})
+        </div>
+      )}
+
+      <BaseballScoreboard match={matchResult} />
+
+      <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+        {matchResult.mode === 'human' && (
+          <button
+            onClick={() => onRematch(matchResult.player2.playerId)}
+            className="px-6 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition-colors shadow-sm"
+          >
+            同じ相手と再戦
+          </button>
+        )}
+        <button
+          onClick={onBack}
+          className="px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-md hover:bg-gray-300 transition-colors"
+        >
+          ロビーへ戻る
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function LeaderboardView({ leaderboard, onBack }: { leaderboard: Player[]; onBack: () => void }) {
+  return (
+    <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold">リーダーボード</h2>
+        <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-100 text-gray-700">
+              <th className="p-3 border-b font-medium">Rank</th>
+              <th className="p-3 border-b font-medium">Player</th>
+              <th className="p-3 border-b font-medium">Type</th>
+              <th className="p-3 border-b font-medium">Rating</th>
+              <th className="p-3 border-b font-medium">Win / Match</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaderboard.map((p, index) => (
+              <tr key={p.playerId} className="hover:bg-gray-50">
+                <td className="p-3 border-b">{index + 1}</td>
+                <td className="p-3 border-b font-bold">{p.name}</td>
+                <td className="p-3 border-b text-gray-600">{p.type}</td>
+                <td className="p-3 border-b font-bold text-blue-600">{p.rating}</td>
+                <td className="p-3 border-b text-gray-600">{p.winCount} / {p.matchCount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ScoreboardsView({
+  matchesList,
+  players,
+  onBack,
+}: {
+  matchesList: MatchRecord[];
+  players: Player[];
+  onBack: () => void;
+}) {
+  return (
+    <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold">過去のスコアボード一覧</h2>
+        <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+      </div>
+
+      {matchesList.length === 0 ? (
+        <p className="text-center text-gray-500 py-8">過去の対戦記録がありません。</p>
+      ) : (
+        <div className="space-y-8">
+          {matchesList.map(m => {
+            // BaseballScoreboardコンポーネントのPropsに合わせるため、一部データをモックで補完
+            // mode未保存の旧データのみ、matchIdの文字列prefixから推測する
+            const mockMatchResult: MatchResult = {
+              matchId: m.matchId,
+              mode: m.mode ?? (m.matchId.startsWith('match-pvp-') ? 'pvp' : 'human'),
+              player1: players.find(p => p.playerId === m.player1Id) || { playerId: m.player1Id, name: m.player1Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
+              player2: players.find(p => p.playerId === m.player2Id) || { playerId: m.player2Id, name: m.player2Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
+              winner: m.winnerId,
+              ratingDiff: m.ratingDiff,
+              scores: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].scores || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
+              shocks: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].shocks || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
+              logs: m.logs || []
+            };
+
+            const reasoningLogs = mockMatchResult.logs.filter(l => l.reasoning);
+
+            return (
+              <div key={m.matchId} className="border rounded-lg p-4 bg-gray-50 shadow-sm">
+                <div className="text-sm text-gray-500 mb-2">Match ID: {m.matchId} | Date: {new Date(m.createdAt).toLocaleString()}</div>
+                <BaseballScoreboard match={mockMatchResult} />
+                {reasoningLogs.length > 0 && (
+                  <div className="mt-3 space-y-1 text-xs text-gray-600 text-left">
+                    {reasoningLogs.map(l => (
+                      <p key={l.turn}><span className="font-bold">Turn {l.turn}:</span> {l.reasoning}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PvpGameView({
+  matchResult,
+  loading,
+  pvpStage,
+  pvpSetChair,
+  shockedChair,
+  highlightedChair,
+  tempNextState,
+  pvpStatusMessage,
+  onBack,
+  onStartPvp,
+  onChairClick,
+  onConfirmNextPlayer,
+  onConfirmTurn,
+}: {
+  matchResult: MatchResult | null;
+  loading: boolean;
+  pvpStage: 'LOBBY_START' | 'SETTING_CHAIR' | 'CONFIRM_NEXT_PLAYER' | 'CHOOSING_CHAIR' | 'REVEALING' | 'SHOW_RESULT';
+  pvpSetChair: number | null;
+  shockedChair: number | null;
+  highlightedChair: number | null;
+  tempNextState: TempNextState | null;
+  pvpStatusMessage: string;
+  onBack: () => void;
+  onStartPvp: () => void;
+  onChairClick: (chair: number) => void;
+  onConfirmNextPlayer: () => void;
+  onConfirmTurn: () => void;
+}) {
+  return (
+    <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      {(!matchResult || matchResult.mode !== 'pvp') && (
+        <>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
+            <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+          </div>
+
+          <div className="text-center mt-8">
+            <button
+              onClick={onStartPvp}
+              disabled={loading}
+              className="px-8 py-3 bg-orange-600 text-white font-bold rounded-md hover:bg-orange-700 disabled:opacity-50 transition-colors shadow-sm"
+            >
+              {loading ? '対戦準備中...' : '対戦開始'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {matchResult && matchResult.mode === 'pvp' && (
+        <div className="">
+          <div className="mb-6">
+            <BaseballScoreboard match={matchResult} />
+          </div>
+
+          {matchResult.winner && (pvpStage === 'SHOW_RESULT' || pvpStage === 'LOBBY_START') ? (
+            <div className="text-center p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl mb-6 border border-orange-100">
+              <h3 className="text-3xl font-black text-amber-900 mb-2">
+                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+              </h3>
+              <p className="text-2xl font-bold text-orange-700">
+                {getPvpWinnerLabel(matchResult.winner)}
+              </p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <div className="mb-4">
+                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
+                  第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+                  (P1あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点 / P2あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p2)}点)
+                </span>
+              </div>
+
+              <ChairBoard
+                remainingChairs={getCurrentRemainingChairs(matchResult)}
+                logs={matchResult.logs}
+                shockedChair={shockedChair}
+                highlightedChair={highlightedChair}
+                getExtraStatus={(chair) => {
+                  if (pvpStage === 'SHOW_RESULT' && pvpSetChair === chair) return 'AI_TRAP_REVEALED';
+                  return null;
+                }}
+                isDisabled={(_chair, isAvailable) => !isAvailable || loading || (pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR')}
+                onChairClick={onChairClick}
+                overlay={
+                  <>
+                    {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
+                        <button
+                          onClick={onConfirmNextPlayer}
+                          className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                        >
+                          準備完了 (画面を渡しました)
+                        </button>
+                      </div>
+                    )}
+
+                    {pvpStage === 'SHOW_RESULT' && tempNextState && (
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
+                        <button
+                          onClick={onConfirmTurn}
+                          className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                        >
+                          {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                }
+              />
+
+              <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
+                <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-orange-100 transition-all ${
+                  pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
+                }`}>
+                  {pvpStatusMessage}
+                </p>
+              </div>
+
+            </div>
+          )}
+
+          <div className="mt-8 text-center border-t pt-4">
+            <button onClick={onBack} className="text-gray-500 hover:underline">
+              ロビーへ戻る
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HumanVsAiGameView({
+  isGameActive,
+  matchResult,
+  players,
+  player2Id,
+  onPlayer2IdChange,
+  loading,
+  onStartMatch,
+  error,
+  gameStep,
+  shockedChair,
+  highlightedChair,
+  tempNextState,
+  statusMessage,
+  commentary,
+  onBack,
+  onChairClick,
+  onConfirmTurn,
+}: {
+  isGameActive: boolean;
+  matchResult: MatchResult | null;
+  players: Player[];
+  player2Id: string;
+  onPlayer2IdChange: (id: string) => void;
+  loading: boolean;
+  onStartMatch: () => void;
+  error: string;
+  gameStep: 'IDLE' | 'AI_THINKING' | 'REVEALING' | 'SHOW_RESULT';
+  shockedChair: number | null;
+  highlightedChair: number | null;
+  tempNextState: TempNextState | null;
+  statusMessage: string;
+  commentary: string;
+  onBack: () => void;
+  onChairClick: (chair: number) => void;
+  onConfirmTurn: () => void;
+}) {
+  return (
+    <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+      {/* ゲームアクティブでないときだけ表示する要素 */}
+      {!isGameActive && (
+        <>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold">人間対AI モード</h2>
+            <button onClick={onBack} className="text-gray-500 hover:underline">ロビーへ戻る</button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
+              <select
+                value={player2Id}
+                onChange={(e) => onPlayer2IdChange(e.target.value)}
+                className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
+              >
+                {players.map(p => (
+                  <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
+                ))}
+              </select>
+              {AI_DESCRIPTIONS[player2Id] && (
+                <p className="text-xs text-gray-500 mt-2">{AI_DESCRIPTIONS[player2Id]}</p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {!isGameActive && (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={onStartMatch}
+            disabled={loading || !players.some(p => p.playerId === player2Id)}
+            className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
+          >
+            {loading ? '対戦準備中...' : '対戦開始'}
+          </button>
+        </div>
+      )}
+
+      {matchResult && matchResult.mode === 'human' && (
+        <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
+          {error && (
+            <div role="status" aria-live="polite" className="mb-4 text-center text-sm font-bold text-amber-900 bg-amber-100 border border-amber-300 rounded-lg py-2 px-3">
+              ⚠️ {error}
+            </div>
+          )}
+          <div className="mb-6">
+            <BaseballScoreboard match={matchResult} />
+          </div>
+
+          {matchResult.winner && gameStep === 'IDLE' ? (
+            <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
+              <h3 className="text-3xl font-black text-emerald-900 mb-2">
+                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
+              </h3>
+              <p className="text-2xl font-bold text-green-700">
+                {getHumanVsAiWinnerLabel(matchResult.winner, matchResult.player2.name)}
+              </p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <div className="mb-4">
+                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
+                  第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
+                  (あなた: あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点)
+                </span>
+              </div>
+
+              <ChairBoard
+                remainingChairs={getCurrentRemainingChairs(matchResult)}
+                logs={matchResult.logs}
+                shockedChair={shockedChair}
+                highlightedChair={highlightedChair}
+                getExtraStatus={(chair) => {
+                  if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
+                  if (gameStep === 'AI_THINKING' && highlightedChair === chair) return 'TRAP_SET';
+                  return null;
+                }}
+                isDisabled={(_chair, isAvailable) => !isAvailable || gameStep !== 'IDLE' || loading}
+                onChairClick={onChairClick}
+                overlay={
+                  gameStep === 'SHOW_RESULT' && tempNextState && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
+                      <button
+                        onClick={onConfirmTurn}
+                        className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
+                      >
+                        {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
+                      </button>
+                    </div>
+                  )
+                }
+              />
+
+              {/* ゲームステータスメッセージ */}
+              <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
+                <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
+                  gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
+                }`}>
+                  {gameStep === 'IDLE' ? (
+                    (() => {
+                      const turn = matchResult.logs.length + 1;
+                      return turn % 2 !== 0
+                        ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)'
+                        : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
+                    })()
+                  ) : (
+                    statusMessage
+                  )}
+                </p>
+              </div>
+
+              {/* AIの心の声(reasoning)。仕掛け側の分もこの時点では既に本人の選択が
+                  確定した後のため、事前に見せてしまうネタバレにはならない。 */}
+              {gameStep === 'SHOW_RESULT' && tempNextState?.newLog.reasoning && (
+                <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-white border-2 border-purple-200 text-gray-800 p-4 rounded-xl shadow-sm text-sm sm:text-base animate-fade-in text-left">
+                  <span className="font-bold text-purple-700">🗯️ {matchResult.player2.name}: </span>
+                  {tempNextState.newLog.reasoning}
+                </div>
+              )}
+
+              {/* 実況エリア */}
+              {commentary && (
+                <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
+                  {commentary}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 戻るリンクを最下部に移動 */}
+          <div className="mt-8 text-center border-t pt-4">
+            <button onClick={onBack} className="text-gray-500 hover:underline">
+              ロビーへ戻る
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function HomeContent() {
   const { currentView, setCurrentView, matchTokenRef } = useSyncedView();
 
@@ -605,13 +1157,7 @@ export function HomeContent() {
   const [pvpStatusMessage, setPvpStatusMessage] = useState<string>('');
   const [highlightedChair, setHighlightedChair] = useState<number | null>(null);
   const [shockedChair, setShockedChair] = useState<number | null>(null);
-  const [tempNextState, setTempNextState] = useState<{
-    winner: string;
-    newScores: { p1: number; p2: number };
-    newShocks: { p1: number; p2: number };
-    newLog: GameLog;
-    aiSetChairs?: number[];
-  } | null>(null);
+  const [tempNextState, setTempNextState] = useState<TempNextState | null>(null);
   
   const [commentary, setCommentary] = useState<string>('');
   // 直近の人間対AI戦で確定したAI側のレーティング変動(結果画面表示用)。
@@ -941,8 +1487,8 @@ export function HomeContent() {
     });
   }, []);
 
-  const isGameActive = (currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
-                       (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp');
+  const isGameActive = !!((currentView === 'GAME' && matchResult && matchResult.mode === 'human') ||
+                       (currentView === 'PVP_GAME' && matchResult && matchResult.mode === 'pvp'));
 
   // 復帰確認待ち(resumableMatchの提示中〜ユーザーが選択するまで)の間、直後にマウントする
   // 保存用effectがsessionStorageを上書き/削除してしまわないようにするガード。
@@ -1037,6 +1583,72 @@ export function HomeContent() {
     setResumableMatch(null);
   };
 
+  const handleStartPvp = () => {
+    setLoading(true);
+    setMatchResult({
+      matchId: `match-pvp-${crypto.randomUUID()}`,
+      mode: 'pvp',
+      player1: { playerId: 'p1', name: 'プレイヤー1', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+      player2: { playerId: 'p2', name: 'プレイヤー2', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
+      winner: '',
+      ratingDiff: 0,
+      scores: { p1: 0, p2: 0 },
+      shocks: { p1: 0, p2: 0 },
+      logs: []
+    });
+    setPvpStage('LOBBY_START');
+    setPvpStatusMessage('プレイヤー1が電流を仕掛ける番です。プレイヤー2は画面を見ないでください。');
+    setHighlightedChair(null);
+    setShockedChair(null);
+    setPvpSetChair(null);
+    setTempNextState(null);
+    setCommentary('');
+    setLoading(false);
+  };
+
+  const handlePvpConfirmNextPlayer = () => {
+    if (!matchResult) return;
+    setPvpStage('CHOOSING_CHAIR');
+    const turn = matchResult.logs.length + 1;
+    const isP1Setter = turn % 2 !== 0;
+    setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}の番です。座る椅子を選んでください。`);
+  };
+
+  const handlePvpConfirmTurn = () => {
+    if (!matchResult || !tempNextState) return;
+    const nextState = tempNextState;
+    const isGameOver = nextState.winner ? true : false;
+    setMatchResult(prev => {
+      if (!prev) return prev;
+      const newResult = {
+        ...prev,
+        winner: nextState.winner,
+        scores: nextState.newScores,
+        shocks: nextState.newShocks,
+        logs: [...prev.logs, nextState.newLog]
+      };
+      if (nextState.winner) {
+        saveMatchToBackend(newResult);
+      }
+      return newResult;
+    });
+    // 各種ステートをリセット
+    setPvpStage('LOBBY_START');
+    setHighlightedChair(null);
+    setShockedChair(null);
+    setPvpSetChair(null);
+    setTempNextState(null);
+    setCommentary('');
+
+    if (isGameOver) {
+      setCurrentView('PVP_GAME');
+    } else {
+      const nextTurn = matchResult.logs.length + 2;
+      const nextIsP1Setter = nextTurn % 2 !== 0;
+      setPvpStatusMessage(`${nextIsP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が電流を仕掛ける番です。`);
+    }
+  };
+
   const handlePvpChairClick = async (chair: number) => {
     if (!matchResult || loading) return;
     const token = matchTokenRef.current;
@@ -1119,6 +1731,35 @@ export function HomeContent() {
       setPvpStage('LOBBY_START');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGameConfirmTurn = () => {
+    if (!tempNextState) return;
+    const nextState = tempNextState;
+    const isGameOver = nextState.winner ? true : false;
+    setMatchResult(prev => {
+      if (!prev) return prev;
+      const newResult = {
+        ...prev,
+        winner: nextState.winner,
+        scores: nextState.newScores,
+        shocks: nextState.newShocks,
+        logs: [...prev.logs, nextState.newLog]
+      };
+      if (nextState.winner) {
+        saveMatchToBackend(newResult);
+      }
+      return newResult;
+    });
+    // 各種ステートをリセット
+    setGameStep('IDLE');
+    setHighlightedChair(null);
+    setShockedChair(null);
+    setTempNextState(null);
+    setCommentary('');
+    if (isGameOver) {
+      setCurrentView('RESULT');
     }
   };
 
@@ -1322,521 +1963,72 @@ export function HomeContent() {
         )}
 
         {currentView === 'LOBBY' && (
-          <div className="space-y-6">
-            <div className="text-center">
-              <button onClick={() => setShowRulesModal(true)} className="text-sm text-blue-600 hover:underline font-medium">📖 ルール説明</button>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button onClick={() => setCurrentView('GAME')} className="p-6 bg-green-600 text-white rounded-xl shadow hover:bg-green-700 transition">
-                <h3 className="text-xl font-bold mb-2">人間対AI</h3>
-                <p className="text-sm opacity-90">あなたがAIと対戦します</p>
-              </button>
-              <button onClick={() => setCurrentView('PVP_GAME')} className="p-6 bg-orange-600 text-white rounded-xl shadow hover:bg-orange-700 transition">
-                <h3 className="text-xl font-bold mb-2">人対人 (ローカル)</h3>
-                <p className="text-sm opacity-90">1台のデバイスで交互に操作して2人対戦を行います</p>
-              </button>
-              <button onClick={() => { fetchLeaderboard(); setCurrentView('LEADERBOARD'); }} className="p-6 bg-purple-600 text-white rounded-xl shadow hover:bg-purple-700 transition">
-                <h3 className="text-xl font-bold mb-2">ランキング</h3>
-                <p className="text-sm opacity-90">AIプレイヤーのレーティングランキング</p>
-              </button>
-              <button onClick={() => { fetchMatches(); setCurrentView('SCOREBOARDS'); }} className="p-6 bg-blue-600 text-white rounded-xl shadow hover:bg-blue-700 transition">
-                <h3 className="text-xl font-bold mb-2">過去のスコアボード一覧</h3>
-                <p className="text-sm opacity-90">これまでの対戦履歴とスコアボードを確認します</p>
-              </button>
-            </div>
-            
-            <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h2 className="text-2xl font-semibold mb-4">登録プレイヤー一覧</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {players.map(p => (
-                  <div key={p.playerId} className="p-4 border rounded-lg bg-gray-50">
-                    <div className="font-bold">{p.name}</div>
-                    <div className="text-sm text-gray-600">Type: {p.type}</div>
-                    <div className="text-sm text-gray-600">Rate: {p.rating}</div>
-                    {AI_DESCRIPTIONS[p.playerId] && (
-                      <div className="text-xs text-gray-500 mt-1">{AI_DESCRIPTIONS[p.playerId]}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+          <LobbyView
+            players={players}
+            onShowRules={() => setShowRulesModal(true)}
+            onStartHumanVsAi={() => setCurrentView('GAME')}
+            onStartPvp={() => setCurrentView('PVP_GAME')}
+            onShowLeaderboard={() => { fetchLeaderboard(); setCurrentView('LEADERBOARD'); }}
+            onShowScoreboards={() => { fetchMatches(); setCurrentView('SCOREBOARDS'); }}
+          />
         )}
 
         {currentView === 'RESULT' && matchResult && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">対戦結果</h2>
-              <button onClick={handleLeaveActiveMatch} className="text-blue-600 hover:underline font-medium">ロビーへ戻る</button>
-            </div>
-            
-            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl mb-6 border border-blue-100 text-center">
-              <h3 className="text-3xl font-black text-indigo-900 mb-2">
-                {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
-              </h3>
-              <p className="text-2xl font-bold text-blue-700">
-                {getResultWinnerLabel(matchResult.winner, players)}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 text-center mb-8">
-              <div className="p-4 border rounded-lg bg-gray-50">
-                <div className="font-bold text-lg mb-2">{matchResult.player1.name}</div>
-                <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p1} pt</div>
-                <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p1}</div>
-              </div>
-              <div className="p-4 border rounded-lg bg-gray-50">
-                <div className="font-bold text-lg mb-2">{matchResult.player2.name}</div>
-                <div className="text-2xl font-bold text-gray-800">{matchResult.scores.p2} pt</div>
-                <div className="text-sm text-gray-500 mt-1">Shocks: {matchResult.shocks.p2}</div>
-              </div>
-            </div>
-
-            {matchResult.mode === 'human' && aiRatingChange && (
-              <div className="text-center mb-8 text-sm text-gray-600">
-                {matchResult.player2.name}のレーティング: {aiRatingChange.before} → {aiRatingChange.before + aiRatingChange.diff}
-                {' '}({aiRatingChange.diff >= 0 ? '+' : ''}{aiRatingChange.diff})
-              </div>
-            )}
-
-            <BaseballScoreboard match={matchResult} />
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
-              {matchResult.mode === 'human' && (
-                <button
-                  onClick={() => startHumanMatch(matchResult.player2.playerId)}
-                  className="px-6 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 transition-colors shadow-sm"
-                >
-                  同じ相手と再戦
-                </button>
-              )}
-              <button
-                onClick={handleLeaveActiveMatch}
-                className="px-6 py-3 bg-gray-200 text-gray-700 font-bold rounded-md hover:bg-gray-300 transition-colors"
-              >
-                ロビーへ戻る
-              </button>
-            </div>
-          </section>
+          <ResultView
+            matchResult={matchResult}
+            players={players}
+            aiRatingChange={aiRatingChange}
+            onRematch={startHumanMatch}
+            onBack={handleLeaveActiveMatch}
+          />
         )}
 
         {currentView === 'LEADERBOARD' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">リーダーボード</h2>
-              <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-100 text-gray-700">
-                    <th className="p-3 border-b font-medium">Rank</th>
-                    <th className="p-3 border-b font-medium">Player</th>
-                    <th className="p-3 border-b font-medium">Type</th>
-                    <th className="p-3 border-b font-medium">Rating</th>
-                    <th className="p-3 border-b font-medium">Win / Match</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaderboard.map((p, index) => (
-                    <tr key={p.playerId} className="hover:bg-gray-50">
-                      <td className="p-3 border-b">{index + 1}</td>
-                      <td className="p-3 border-b font-bold">{p.name}</td>
-                      <td className="p-3 border-b text-gray-600">{p.type}</td>
-                      <td className="p-3 border-b font-bold text-blue-600">{p.rating}</td>
-                      <td className="p-3 border-b text-gray-600">{p.winCount} / {p.matchCount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <LeaderboardView leaderboard={leaderboard} onBack={handleLeaveActiveMatch} />
         )}
 
         {currentView === 'SCOREBOARDS' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold">過去のスコアボード一覧</h2>
-              <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-            </div>
-            
-            {matchesList.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">過去の対戦記録がありません。</p>
-            ) : (
-              <div className="space-y-8">
-                {matchesList.map(m => {
-                  // BaseballScoreboardコンポーネントのPropsに合わせるため、一部データをモックで補完
-                  // mode未保存の旧データのみ、matchIdの文字列prefixから推測する
-                  const mockMatchResult: MatchResult = {
-                    matchId: m.matchId,
-                    mode: m.mode ?? (m.matchId.startsWith('match-pvp-') ? 'pvp' : 'human'),
-                    player1: players.find(p => p.playerId === m.player1Id) || { playerId: m.player1Id, name: m.player1Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
-                    player2: players.find(p => p.playerId === m.player2Id) || { playerId: m.player2Id, name: m.player2Id, type: '', rating: 0, winCount: 0, matchCount: 0 },
-                    winner: m.winnerId,
-                    ratingDiff: m.ratingDiff,
-                    scores: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].scores || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
-                    shocks: m.logs && m.logs.length > 0 ? (m.logs[m.logs.length - 1].shocks || { p1: 0, p2: 0 }) : { p1: 0, p2: 0 },
-                    logs: m.logs || []
-                  };
-
-                  const reasoningLogs = mockMatchResult.logs.filter(l => l.reasoning);
-
-                  return (
-                    <div key={m.matchId} className="border rounded-lg p-4 bg-gray-50 shadow-sm">
-                      <div className="text-sm text-gray-500 mb-2">Match ID: {m.matchId} | Date: {new Date(m.createdAt).toLocaleString()}</div>
-                      <BaseballScoreboard match={mockMatchResult} />
-                      {reasoningLogs.length > 0 && (
-                        <div className="mt-3 space-y-1 text-xs text-gray-600 text-left">
-                          {reasoningLogs.map(l => (
-                            <p key={l.turn}><span className="font-bold">Turn {l.turn}:</span> {l.reasoning}</p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+          <ScoreboardsView matchesList={matchesList} players={players} onBack={handleLeaveActiveMatch} />
         )}
 
         {currentView === 'PVP_GAME' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            {(!matchResult || matchResult.mode !== 'pvp') && (
-              <>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-semibold">人対人 (ローカル対戦) モード</h2>
-                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-                </div>
-                
-                <div className="text-center mt-8">
-                  <button
-                    onClick={() => {
-                      setLoading(true);
-                      setMatchResult({
-                        matchId: `match-pvp-${crypto.randomUUID()}`,
-                        mode: 'pvp',
-                        player1: { playerId: 'p1', name: 'プレイヤー1', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
-                        player2: { playerId: 'p2', name: 'プレイヤー2', type: 'human', rating: 1500, winCount: 0, matchCount: 0 },
-                        winner: '',
-                        ratingDiff: 0,
-                        scores: { p1: 0, p2: 0 },
-                        shocks: { p1: 0, p2: 0 },
-                        logs: []
-                      });
-                      setPvpStage('LOBBY_START');
-                      setPvpStatusMessage('プレイヤー1が電流を仕掛ける番です。プレイヤー2は画面を見ないでください。');
-                      setHighlightedChair(null);
-                      setShockedChair(null);
-                      setPvpSetChair(null);
-                      setTempNextState(null);
-                      setCommentary('');
-                      setLoading(false);
-                    }}
-                    disabled={loading}
-                    className="px-8 py-3 bg-orange-600 text-white font-bold rounded-md hover:bg-orange-700 disabled:opacity-50 transition-colors shadow-sm"
-                  >
-                    {loading ? '対戦準備中...' : '対戦開始'}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {matchResult && matchResult.mode === 'pvp' && (
-              <div className="">
-                <div className="mb-6">
-                  <BaseballScoreboard match={matchResult} />
-                </div>
-
-                {matchResult.winner && (pvpStage === 'SHOW_RESULT' || pvpStage === 'LOBBY_START') ? (
-                  <div className="text-center p-6 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl mb-6 border border-orange-100">
-                    <h3 className="text-3xl font-black text-amber-900 mb-2">
-                      {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
-                    </h3>
-                    <p className="text-2xl font-bold text-orange-700">
-                      {getPvpWinnerLabel(matchResult.winner)}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="mb-4">
-                      <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
-                        第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
-                        (P1あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点 / P2あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p2)}点)
-                      </span>
-                    </div>
-
-                    <ChairBoard
-                      remainingChairs={getCurrentRemainingChairs(matchResult)}
-                      logs={matchResult.logs}
-                      shockedChair={shockedChair}
-                      highlightedChair={highlightedChair}
-                      getExtraStatus={(chair) => {
-                        if (pvpStage === 'SHOW_RESULT' && pvpSetChair === chair) return 'AI_TRAP_REVEALED';
-                        return null;
-                      }}
-                      isDisabled={(_chair, isAvailable) => !isAvailable || loading || (pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR')}
-                      onChairClick={handlePvpChairClick}
-                      overlay={
-                        <>
-                          {pvpStage === 'CONFIRM_NEXT_PLAYER' && (
-                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-full animate-fade-in">
-                              <button
-                                onClick={() => {
-                                  setPvpStage('CHOOSING_CHAIR');
-                                  const turn = matchResult.logs.length + 1;
-                                  const isP1Setter = turn % 2 !== 0;
-                                  setPvpStatusMessage(`${!isP1Setter ? 'プレイヤー1' : 'プレイヤー2'}の番です。座る椅子を選んでください。`);
-                                }}
-                                className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                              >
-                                準備完了 (画面を渡しました)
-                              </button>
-                            </div>
-                          )}
-
-                          {pvpStage === 'SHOW_RESULT' && tempNextState && (
-                            <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/40 backdrop-blur-sm rounded-full animate-fade-in">
-                              <button
-                                onClick={() => {
-                                  const nextState = tempNextState;
-                                  const isGameOver = nextState.winner ? true : false;
-                                  setMatchResult(prev => {
-                                    if (!prev || !nextState) return prev;
-                                    const newResult = {
-                                      ...prev,
-                                      winner: nextState.winner,
-                                      scores: nextState.newScores,
-                                      shocks: nextState.newShocks,
-                                      logs: [...prev.logs, nextState.newLog]
-                                    };
-                                    if (nextState.winner) {
-                                      saveMatchToBackend(newResult);
-                                    }
-                                    return newResult;
-                                  });
-                                  // 各種ステートをリセット
-                                  setPvpStage('LOBBY_START');
-                                  setHighlightedChair(null);
-                                  setShockedChair(null);
-                                  setPvpSetChair(null);
-                                  setTempNextState(null);
-                                  setCommentary('');
-
-                                  if (isGameOver) {
-                                    setCurrentView('PVP_GAME');
-                                  } else {
-                                    const nextTurn = matchResult.logs.length + 2;
-                                    const nextIsP1Setter = nextTurn % 2 !== 0;
-                                    setPvpStatusMessage(`${nextIsP1Setter ? 'プレイヤー1' : 'プレイヤー2'}が電流を仕掛ける番です。`);
-                                  }
-                                }}
-                                className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                              >
-                                {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
-                              </button>
-                            </div>
-                          )}
-                        </>
-                      }
-                    />
-
-                    <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
-                      <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-orange-100 transition-all ${
-                        pvpStage !== 'LOBBY_START' && pvpStage !== 'CHOOSING_CHAIR' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
-                      }`}>
-                        {pvpStatusMessage}
-                      </p>
-                    </div>
-
-                  </div>
-                )}
-
-                <div className="mt-8 text-center border-t pt-4">
-                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">
-                    ロビーへ戻る
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
+          <PvpGameView
+            matchResult={matchResult}
+            loading={loading}
+            pvpStage={pvpStage}
+            pvpSetChair={pvpSetChair}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            tempNextState={tempNextState}
+            pvpStatusMessage={pvpStatusMessage}
+            onBack={handleLeaveActiveMatch}
+            onStartPvp={handleStartPvp}
+            onChairClick={handlePvpChairClick}
+            onConfirmNextPlayer={handlePvpConfirmNextPlayer}
+            onConfirmTurn={handlePvpConfirmTurn}
+          />
         )}
 
         {currentView === 'GAME' && (
-          <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            {/* ゲームアクティブでないときだけ表示する要素 */}
-            {!isGameActive && (
-              <>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-semibold">人間対AI モード</h2>
-                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">ロビーへ戻る</button>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">対戦相手 (AI)</label>
-                    <select
-                      value={player2Id}
-                      onChange={(e) => setPlayer2Id(e.target.value)}
-                      className="w-full border-gray-300 rounded-md shadow-sm focus:border-green-500 focus:ring-green-500 p-2 border"
-                    >
-                      {players.map(p => (
-                        <option key={p.playerId} value={p.playerId}>{p.name} (Rate: {p.rating})</option>
-                      ))}
-                    </select>
-                    {AI_DESCRIPTIONS[player2Id] && (
-                      <p className="text-xs text-gray-500 mt-2">{AI_DESCRIPTIONS[player2Id]}</p>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {!isGameActive && (
-              <div className="mt-8 flex justify-center">
-                <button
-                  onClick={() => startHumanMatch(player2Id)}
-                  disabled={loading || !players.some(p => p.playerId === player2Id)}
-                  className="px-8 py-3 bg-green-600 text-white font-bold rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
-                >
-                  {loading ? '対戦準備中...' : '対戦開始'}
-                </button>
-              </div>
-            )}
-
-            {matchResult && matchResult.mode === 'human' && (
-              <div className={!isGameActive ? "mt-8 border-t pt-8" : ""}>
-                {error && (
-                  <div role="status" aria-live="polite" className="mb-4 text-center text-sm font-bold text-amber-900 bg-amber-100 border border-amber-300 rounded-lg py-2 px-3">
-                    ⚠️ {error}
-                  </div>
-                )}
-                <div className="mb-6">
-                  <BaseballScoreboard match={matchResult} />
-                </div>
-
-                {matchResult.winner && gameStep === 'IDLE' ? (
-                  <div className="text-center p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl mb-6 border border-green-100">
-                    <h3 className="text-3xl font-black text-emerald-900 mb-2">
-                      {matchResult.winner === 'draw' ? 'DRAW' : 'WINNER'}
-                    </h3>
-                    <p className="text-2xl font-bold text-green-700">
-                      {getHumanVsAiWinnerLabel(matchResult.winner, matchResult.player2.name)}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="mb-4">
-                      <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold mr-2">
-                        第 {Math.ceil((matchResult.logs.length + 1) / 2)} イニング / ターン {matchResult.logs.length + 1}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {GAME_RULES.WINNING_SCORE}点先取 / 感電{GAME_RULES.MAX_SHOCKS}回で敗北
-                        (あなた: あと{Math.max(0, GAME_RULES.WINNING_SCORE - matchResult.scores.p1)}点)
-                      </span>
-                    </div>
-
-                    <ChairBoard
-                      remainingChairs={getCurrentRemainingChairs(matchResult)}
-                      logs={matchResult.logs}
-                      shockedChair={shockedChair}
-                      highlightedChair={highlightedChair}
-                      getExtraStatus={(chair) => {
-                        if (gameStep === 'SHOW_RESULT' && tempNextState?.aiSetChairs?.includes(chair)) return 'AI_TRAP_REVEALED';
-                        if (gameStep === 'AI_THINKING' && highlightedChair === chair) return 'TRAP_SET';
-                        return null;
-                      }}
-                      isDisabled={(_chair, isAvailable) => !isAvailable || gameStep !== 'IDLE' || loading}
-                      onChairClick={handleGameChairClick}
-                      overlay={
-                        gameStep === 'SHOW_RESULT' && tempNextState && (
-                          <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/15 backdrop-blur-[0.5px] rounded-full animate-fade-in">
-                            <button
-                              onClick={() => {
-                                const nextState = tempNextState;
-                                const isGameOver = nextState.winner ? true : false;
-                                setMatchResult(prev => {
-                                  if (!prev || !nextState) return prev;
-                                  const newResult = {
-                                    ...prev,
-                                    winner: nextState.winner,
-                                    scores: nextState.newScores,
-                                    shocks: nextState.newShocks,
-                                    logs: [...prev.logs, nextState.newLog]
-                                  };
-                                  if (nextState.winner) {
-                                    saveMatchToBackend(newResult);
-                                  }
-                                  return newResult;
-                                });
-                                // 各種ステートをリセット
-                                setGameStep('IDLE');
-                                setHighlightedChair(null);
-                                setShockedChair(null);
-                                setTempNextState(null);
-                                setCommentary('');
-                                if (isGameOver) {
-                                  setCurrentView('RESULT');
-                                }
-                              }}
-                              className="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-black rounded-lg shadow-xl transition-all scale-110 hover:scale-125 active:scale-95"
-                            >
-                              {tempNextState.winner ? '最終結果を見る' : '次のターンへ'}
-                            </button>
-                          </div>
-                        )
-                      }
-                    />
-
-                    {/* ゲームステータスメッセージ */}
-                    <div className="min-h-[70px] flex items-center justify-center mb-4 mt-6">
-                      <p aria-live="polite" className={`text-lg font-bold text-gray-800 bg-white p-3 rounded-lg shadow-sm border border-green-100 transition-all ${
-                        gameStep !== 'IDLE' ? 'scale-105 border-yellow-400 bg-yellow-50 animate-pulse motion-reduce:animate-none' : ''
-                      }`}>
-                        {gameStep === 'IDLE' ? (
-                          (() => {
-                            const turn = matchResult.logs.length + 1;
-                            return turn % 2 !== 0
-                              ? 'あなたの番です: 電流を仕掛ける椅子を選んでください (AIが座る椅子を選びます)'
-                              : 'あなたの番です: 安全だと思う椅子を選んで座ってください (AIが電流を仕掛けました)';
-                          })()
-                        ) : (
-                          statusMessage
-                        )}
-                      </p>
-                    </div>
-
-                    {/* AIの心の声(reasoning)。仕掛け側の分もこの時点では既に本人の選択が
-                        確定した後のため、事前に見せてしまうネタバレにはならない。 */}
-                    {gameStep === 'SHOW_RESULT' && tempNextState?.newLog.reasoning && (
-                      <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-white border-2 border-purple-200 text-gray-800 p-4 rounded-xl shadow-sm text-sm sm:text-base animate-fade-in text-left">
-                        <span className="font-bold text-purple-700">🗯️ {matchResult.player2.name}: </span>
-                        {tempNextState.newLog.reasoning}
-                      </div>
-                    )}
-
-                    {/* 実況エリア */}
-                    {commentary && (
-                      <div aria-live="polite" className="max-w-2xl mx-auto mb-4 bg-slate-900 border-2 border-slate-700 text-green-400 p-4 rounded-xl shadow-lg font-mono text-sm sm:text-base animate-fade-in text-left">
-                        {commentary}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 戻るリンクを最下部に移動 */}
-                <div className="mt-8 text-center border-t pt-4">
-                  <button onClick={handleLeaveActiveMatch} className="text-gray-500 hover:underline">
-                    ロビーへ戻る
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
+          <HumanVsAiGameView
+            isGameActive={isGameActive}
+            matchResult={matchResult}
+            players={players}
+            player2Id={player2Id}
+            onPlayer2IdChange={setPlayer2Id}
+            loading={loading}
+            onStartMatch={() => startHumanMatch(player2Id)}
+            error={error}
+            gameStep={gameStep}
+            shockedChair={shockedChair}
+            highlightedChair={highlightedChair}
+            tempNextState={tempNextState}
+            statusMessage={statusMessage}
+            commentary={commentary}
+            onBack={handleLeaveActiveMatch}
+            onChairClick={handleGameChairClick}
+            onConfirmTurn={handleGameConfirmTurn}
+          />
         )}
 
       </div>
