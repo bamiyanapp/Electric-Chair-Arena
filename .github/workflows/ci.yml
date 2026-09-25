@@ -30,5 +30,7 @@ jobs:
       e2e_coverage_metrics: 'statements,functions,lines'
       enable_mermaid_render: true
       mermaid_doc_paths: "docs/architecture.md\nREADME.md"
+      enable_text_lint: true
+      text_lint_paths: "docs/*.md\nREADME.md"
     secrets:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
