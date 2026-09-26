@@ -24,6 +24,84 @@ const { computeAiMove } = require('./handler.js');
  *   シミュレートする。#167導入前後の強さ比較(自己対戦ベンチマーク)専用のオプション。
  * @returns {{ winnerId: string | 'draw', scores: {p1:number, p2:number}, shocks: {p1:number, p2:number}, turns: number }}
  */
+// isP1Setterに応じて、このターンのsetter/chooser視点の情報一式を解決する。
+function resolveSimulateMatchTurnRoles(turn, player1Id, player2Id, scores, shocks, p1ObservedHistory, p2ObservedHistory) {
+  const isP1Setter = turn % 2 !== 0;
+  return {
+    isP1Setter,
+    setterId: isP1Setter ? player1Id : player2Id,
+    chooserId: isP1Setter ? player2Id : player1Id,
+    setterScore: isP1Setter ? scores.p1 : scores.p2,
+    chooserScore: isP1Setter ? scores.p2 : scores.p1,
+    setterShocks: isP1Setter ? shocks.p1 : shocks.p2,
+    chooserShocks: isP1Setter ? shocks.p2 : shocks.p1,
+    setterOwnHistory: isP1Setter ? p1ObservedHistory : p2ObservedHistory,
+    chooserOwnHistory: isP1Setter ? p2ObservedHistory : p1ObservedHistory,
+  };
+}
+
+// 設置者/選択者それぞれの手が確定した後の、観測履歴更新・感電判定・
+// スコア更新を行う(scores・shocks・rolesの各historyをミューテートする)。
+function applySimulateMatchTurnOutcome(roles, scores, shocks, setChairs, chosenChair, availableChairsBeforeTurn) {
+  // 設置者は今回の選択者の行動を観測する。選択者は、感電した場合に限り
+  // (罠の位置が明かされるため)今回の設置者の行動を観測する。
+  roles.setterOwnHistory.chooserActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
+
+  const isShocked = setChairs.includes(chosenChair);
+  if (isShocked) {
+    roles.chooserOwnHistory.setterActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
+    if (roles.isP1Setter) {
+      shocks.p2 += 1;
+      scores.p2 = 0;
+    } else {
+      shocks.p1 += 1;
+      scores.p1 = 0;
+    }
+  } else if (roles.isP1Setter) {
+    scores.p2 += chosenChair;
+  } else {
+    scores.p1 += chosenChair;
+  }
+}
+
+// simulateMatchの1ターン分の処理。scores・shocks・p1ObservedHistory・
+// p2ObservedHistoryは呼び出し元と共有するオブジェクトをそのままミューテートし、
+// フィルタ後の残り椅子(次ターンのremainingChairs)を返す。
+function playSimulateMatchTurn(turn, player1Id, player2Id, remainingChairs, scores, shocks, p1ObservedHistory, p2ObservedHistory, useOpponentHistory) {
+  const roles = resolveSimulateMatchTurnRoles(turn, player1Id, player2Id, scores, shocks, p1ObservedHistory, p2ObservedHistory);
+  const availableChairsBeforeTurn = remainingChairs;
+
+  const { setChairs } = computeAiMove(roles.setterId, 'set', remainingChairs, {
+    selfScore: roles.setterScore, opponentScore: roles.chooserScore, selfShocks: roles.setterShocks, opponentShocks: roles.chooserShocks,
+    ...(useOpponentHistory ? { opponentHistory: roles.setterOwnHistory } : {}),
+  });
+  const { chosenChair } = computeAiMove(roles.chooserId, 'choose', remainingChairs, {
+    selfScore: roles.chooserScore, opponentScore: roles.setterScore, selfShocks: roles.chooserShocks, opponentShocks: roles.setterShocks,
+    ...(useOpponentHistory ? { opponentHistory: roles.chooserOwnHistory } : {}),
+  });
+
+  applySimulateMatchTurnOutcome(roles, scores, shocks, setChairs, chosenChair, availableChairsBeforeTurn);
+
+  return remainingChairs.filter(c => c !== chosenChair);
+}
+
+// 最終スコア・感電数からplayer1Id/player2Id/'draw'のいずれかを判定する。
+function resolveSimulateMatchWinner(player1Id, player2Id, scores, shocks) {
+  if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || scores.p2 >= GAME_RULES.WINNING_SCORE) {
+    return player2Id;
+  }
+  if (shocks.p2 >= GAME_RULES.MAX_SHOCKS || scores.p1 >= GAME_RULES.WINNING_SCORE) {
+    return player1Id;
+  }
+  if (scores.p1 !== scores.p2) {
+    return scores.p1 > scores.p2 ? player1Id : player2Id;
+  }
+  if (shocks.p1 !== shocks.p2) {
+    return shocks.p1 < shocks.p2 ? player1Id : player2Id;
+  }
+  return 'draw';
+}
+
 function simulateMatch(player1Id, player2Id, options = {}) {
   const { useOpponentHistory = true } = options;
   let remainingChairs = Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
@@ -46,62 +124,14 @@ function simulateMatch(player1Id, player2Id, options = {}) {
   };
 
   while (!isOver()) {
-    const isP1Setter = turn % 2 !== 0;
-    const setterId = isP1Setter ? player1Id : player2Id;
-    const chooserId = isP1Setter ? player2Id : player1Id;
-    const setterScore = isP1Setter ? scores.p1 : scores.p2;
-    const chooserScore = isP1Setter ? scores.p2 : scores.p1;
-    const setterShocks = isP1Setter ? shocks.p1 : shocks.p2;
-    const chooserShocks = isP1Setter ? shocks.p2 : shocks.p1;
-    const availableChairsBeforeTurn = remainingChairs;
-    const setterOwnHistory = isP1Setter ? p1ObservedHistory : p2ObservedHistory;
-    const chooserOwnHistory = isP1Setter ? p2ObservedHistory : p1ObservedHistory;
-
-    const { setChairs } = computeAiMove(setterId, 'set', remainingChairs, {
-      selfScore: setterScore, opponentScore: chooserScore, selfShocks: setterShocks, opponentShocks: chooserShocks,
-      ...(useOpponentHistory ? { opponentHistory: setterOwnHistory } : {}),
-    });
-    const { chosenChair } = computeAiMove(chooserId, 'choose', remainingChairs, {
-      selfScore: chooserScore, opponentScore: setterScore, selfShocks: chooserShocks, opponentShocks: setterShocks,
-      ...(useOpponentHistory ? { opponentHistory: chooserOwnHistory } : {}),
-    });
-
-    // 設置者は今回の選択者の行動を観測する。選択者は、感電した場合に限り
-    // (罠の位置が明かされるため)今回の設置者の行動を観測する。
-    setterOwnHistory.chooserActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
-
-    const isShocked = setChairs.includes(chosenChair);
-    if (isShocked) {
-      chooserOwnHistory.setterActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
-      if (isP1Setter) {
-        shocks.p2 += 1;
-        scores.p2 = 0;
-      } else {
-        shocks.p1 += 1;
-        scores.p1 = 0;
-      }
-    } else if (isP1Setter) {
-      scores.p2 += chosenChair;
-    } else {
-      scores.p1 += chosenChair;
-    }
-
-    remainingChairs = remainingChairs.filter(c => c !== chosenChair);
+    remainingChairs = playSimulateMatchTurn(
+      turn, player1Id, player2Id, remainingChairs, scores, shocks,
+      p1ObservedHistory, p2ObservedHistory, useOpponentHistory
+    );
     turn++;
   }
 
-  let winnerId;
-  if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || scores.p2 >= GAME_RULES.WINNING_SCORE) {
-    winnerId = player2Id;
-  } else if (shocks.p2 >= GAME_RULES.MAX_SHOCKS || scores.p1 >= GAME_RULES.WINNING_SCORE) {
-    winnerId = player1Id;
-  } else if (scores.p1 !== scores.p2) {
-    winnerId = scores.p1 > scores.p2 ? player1Id : player2Id;
-  } else if (shocks.p1 !== shocks.p2) {
-    winnerId = shocks.p1 < shocks.p2 ? player1Id : player2Id;
-  } else {
-    winnerId = 'draw';
-  }
+  const winnerId = resolveSimulateMatchWinner(player1Id, player2Id, scores, shocks);
 
   return { winnerId, scores, shocks, turns: turn - 1 };
 }
@@ -130,6 +160,87 @@ function computeBiasedBotMove(role, remainingChairs) {
  * @param {{ useOpponentHistory?: boolean }} [options]
  * @returns {{ winnerId: 'ai-nash' | 'biased-bot' | 'draw' }}
  */
+// このターンのsetter/chooserの手を決定する(ai-nash視点で仕掛け側/選ぶ側の
+// いずれかがcomputeAiMove、もう一方がcomputeBiasedBotMoveになる)。
+function computeSimulateMatchVsBiasedBotMoves(isNashSetter, remainingChairs, nashScore, botScore, nashShocks, botShocks, nashObservedHistory, useOpponentHistory) {
+  const setterMove = isNashSetter
+    ? computeAiMove('ai-nash', 'set', remainingChairs, {
+        selfScore: nashScore, opponentScore: botScore, selfShocks: nashShocks, opponentShocks: botShocks,
+        ...(useOpponentHistory ? { opponentHistory: nashObservedHistory } : {}),
+      })
+    : computeBiasedBotMove('set', remainingChairs);
+  const chooserMove = isNashSetter
+    ? computeBiasedBotMove('choose', remainingChairs)
+    : computeAiMove('ai-nash', 'choose', remainingChairs, {
+        selfScore: nashScore, opponentScore: botScore, selfShocks: nashShocks, opponentShocks: botShocks,
+        ...(useOpponentHistory ? { opponentHistory: nashObservedHistory } : {}),
+      });
+
+  return { setChairs: setterMove.setChairs, chosenChair: chooserMove.chosenChair };
+}
+
+// 設置者/選択者それぞれの手が確定した後の、観測履歴更新・感電判定・
+// スコア更新を行う(scores・shocks・nashObservedHistoryをミューテートする)。
+function applySimulateMatchVsBiasedBotTurnOutcome(isNashSetter, scores, shocks, nashObservedHistory, setChairs, chosenChair, availableChairsBeforeTurn) {
+  // ai-nashが設置者だったターンでは、ai-nashは今回のボット(選択者)の
+  // 行動を観測する。ai-nashが選択者だったターンでは、感電した場合に
+  // 限り(罠の位置が明かされるため)今回のボット(設置者)の行動を観測する。
+  if (isNashSetter) {
+    nashObservedHistory.chooserActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
+  }
+
+  const isShocked = setChairs.includes(chosenChair);
+  if (isShocked) {
+    if (!isNashSetter) {
+      nashObservedHistory.setterActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
+    }
+    if (isNashSetter) {
+      shocks.bot += 1;
+      scores.bot = 0;
+    } else {
+      shocks.nash += 1;
+      scores.nash = 0;
+    }
+  } else if (isNashSetter) {
+    scores.bot += chosenChair;
+  } else {
+    scores.nash += chosenChair;
+  }
+}
+
+// simulateMatchVsBiasedBotの1ターン分の処理。scores・shocks・
+// nashObservedHistoryは呼び出し元と共有するオブジェクトをそのままミューテートし、
+// フィルタ後の残り椅子(次ターンのremainingChairs)を返す。
+function playSimulateMatchVsBiasedBotTurn(turn, remainingChairs, scores, shocks, nashObservedHistory, useOpponentHistory) {
+  const isNashSetter = turn % 2 !== 0;
+  const availableChairsBeforeTurn = remainingChairs;
+
+  const { setChairs, chosenChair } = computeSimulateMatchVsBiasedBotMoves(
+    isNashSetter, remainingChairs, scores.nash, scores.bot, shocks.nash, shocks.bot, nashObservedHistory, useOpponentHistory
+  );
+
+  applySimulateMatchVsBiasedBotTurnOutcome(isNashSetter, scores, shocks, nashObservedHistory, setChairs, chosenChair, availableChairsBeforeTurn);
+
+  return remainingChairs.filter(c => c !== chosenChair);
+}
+
+// 最終スコア・感電数から'ai-nash'/'biased-bot'/'draw'のいずれかを判定する。
+function resolveSimulateMatchVsBiasedBotWinner(scores, shocks) {
+  if (shocks.nash >= GAME_RULES.MAX_SHOCKS || scores.bot >= GAME_RULES.WINNING_SCORE) {
+    return 'biased-bot';
+  }
+  if (shocks.bot >= GAME_RULES.MAX_SHOCKS || scores.nash >= GAME_RULES.WINNING_SCORE) {
+    return 'ai-nash';
+  }
+  if (scores.nash !== scores.bot) {
+    return scores.nash > scores.bot ? 'ai-nash' : 'biased-bot';
+  }
+  if (shocks.nash !== shocks.bot) {
+    return shocks.nash < shocks.bot ? 'ai-nash' : 'biased-bot';
+  }
+  return 'draw';
+}
+
 function simulateMatchVsBiasedBot(options = {}) {
   const { useOpponentHistory = true } = options;
   let remainingChairs = Array.from({ length: GAME_RULES.TOTAL_CHAIRS }, (_, i) => i + 1);
@@ -148,70 +259,11 @@ function simulateMatchVsBiasedBot(options = {}) {
   };
 
   while (!isOver()) {
-    const isNashSetter = turn % 2 !== 0;
-    const nashScore = scores.nash;
-    const botScore = scores.bot;
-    const nashShocks = shocks.nash;
-    const botShocks = shocks.bot;
-    const availableChairsBeforeTurn = remainingChairs;
-
-    const setterMove = isNashSetter
-      ? computeAiMove('ai-nash', 'set', remainingChairs, {
-          selfScore: nashScore, opponentScore: botScore, selfShocks: nashShocks, opponentShocks: botShocks,
-          ...(useOpponentHistory ? { opponentHistory: nashObservedHistory } : {}),
-        })
-      : computeBiasedBotMove('set', remainingChairs);
-    const chooserMove = isNashSetter
-      ? computeBiasedBotMove('choose', remainingChairs)
-      : computeAiMove('ai-nash', 'choose', remainingChairs, {
-          selfScore: nashScore, opponentScore: botScore, selfShocks: nashShocks, opponentShocks: botShocks,
-          ...(useOpponentHistory ? { opponentHistory: nashObservedHistory } : {}),
-        });
-
-    const { setChairs } = setterMove;
-    const { chosenChair } = chooserMove;
-
-    // ai-nashが設置者だったターンでは、ai-nashは今回のボット(選択者)の
-    // 行動を観測する。ai-nashが選択者だったターンでは、感電した場合に
-    // 限り(罠の位置が明かされるため)今回のボット(設置者)の行動を観測する。
-    if (isNashSetter) {
-      nashObservedHistory.chooserActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
-    }
-
-    const isShocked = setChairs.includes(chosenChair);
-    if (isShocked) {
-      if (!isNashSetter) {
-        nashObservedHistory.setterActions.push({ chosenChair, availableChairs: availableChairsBeforeTurn });
-      }
-      if (isNashSetter) {
-        shocks.bot += 1;
-        scores.bot = 0;
-      } else {
-        shocks.nash += 1;
-        scores.nash = 0;
-      }
-    } else if (isNashSetter) {
-      scores.bot += chosenChair;
-    } else {
-      scores.nash += chosenChair;
-    }
-
-    remainingChairs = remainingChairs.filter(c => c !== chosenChair);
+    remainingChairs = playSimulateMatchVsBiasedBotTurn(turn, remainingChairs, scores, shocks, nashObservedHistory, useOpponentHistory);
     turn++;
   }
 
-  let winnerId;
-  if (shocks.nash >= GAME_RULES.MAX_SHOCKS || scores.bot >= GAME_RULES.WINNING_SCORE) {
-    winnerId = 'biased-bot';
-  } else if (shocks.bot >= GAME_RULES.MAX_SHOCKS || scores.nash >= GAME_RULES.WINNING_SCORE) {
-    winnerId = 'ai-nash';
-  } else if (scores.nash !== scores.bot) {
-    winnerId = scores.nash > scores.bot ? 'ai-nash' : 'biased-bot';
-  } else if (shocks.nash !== shocks.bot) {
-    winnerId = shocks.nash < shocks.bot ? 'ai-nash' : 'biased-bot';
-  } else {
-    winnerId = 'draw';
-  }
+  const winnerId = resolveSimulateMatchVsBiasedBotWinner(scores, shocks);
 
   return { winnerId };
 }

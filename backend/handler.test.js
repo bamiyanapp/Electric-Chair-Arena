@@ -21,48 +21,61 @@ const tableKeyName = {
   'test-players-table': 'playerId',
 };
 
+function handleMockPutCommand(tableName, store, command) {
+  const keyName = tableKeyName[tableName];
+  const key = command.input.Item[keyName];
+  if (command.input.ConditionExpression === `attribute_not_exists(${keyName})` && store.has(key)) {
+    throw Object.assign(new Error('ConditionalCheckFailedException'), { name: 'ConditionalCheckFailedException' });
+  }
+  store.set(key, command.input.Item);
+  return {};
+}
+
+function handleMockGetCommand(store, command) {
+  const key = Object.values(command.input.Key)[0];
+  const item = store.get(key);
+  return item ? { Item: item } : {};
+}
+
+function handleMockScanCommand(store) {
+  return { Items: Array.from(store.values()) };
+}
+
+// handler.jsのapplyPlayerRatingUpdateが生成する
+// "SET x = if_not_exists(x, :seed) + :diff, ..." パターンのみをエミュレートする。
+function handleMockUpdateCommand(tableName, store, command) {
+  const keyName = tableKeyName[tableName];
+  const key = command.input.Key[keyName];
+  const existing = store.get(key) || {};
+  const values = command.input.ExpressionAttributeValues || {};
+  const merged = {
+    ...existing,
+    [keyName]: key,
+    rating: (existing.rating !== undefined ? existing.rating : values[':seedRating']) + values[':ratingDiff'],
+    matchCount: (existing.matchCount !== undefined ? existing.matchCount : values[':seedMatchCount']) + values[':one'],
+    winCount: (existing.winCount !== undefined ? existing.winCount : values[':seedWinCount']) + values[':winInc'],
+    name: existing.name !== undefined ? existing.name : values[':name'],
+    type: existing.type !== undefined ? existing.type : values[':type'],
+    updatedAt: values[':updatedAt'],
+  };
+  store.set(key, merged);
+  return {};
+}
+
 function defaultDynamoSend(command) {
   const tableName = command.input.TableName;
   const store = dynamoTables[tableName];
   if (!store) return {};
 
   switch (command.constructor.name) {
-    case 'PutCommand': {
-      const keyName = tableKeyName[tableName];
-      const key = command.input.Item[keyName];
-      if (command.input.ConditionExpression === `attribute_not_exists(${keyName})` && store.has(key)) {
-        throw Object.assign(new Error('ConditionalCheckFailedException'), { name: 'ConditionalCheckFailedException' });
-      }
-      store.set(key, command.input.Item);
-      return {};
-    }
-    case 'GetCommand': {
-      const key = Object.values(command.input.Key)[0];
-      const item = store.get(key);
-      return item ? { Item: item } : {};
-    }
+    case 'PutCommand':
+      return handleMockPutCommand(tableName, store, command);
+    case 'GetCommand':
+      return handleMockGetCommand(store, command);
     case 'ScanCommand':
-      return { Items: Array.from(store.values()) };
-    case 'UpdateCommand': {
-      // handler.jsのapplyPlayerRatingUpdateが生成する
-      // "SET x = if_not_exists(x, :seed) + :diff, ..." パターンのみをエミュレートする。
-      const keyName = tableKeyName[tableName];
-      const key = command.input.Key[keyName];
-      const existing = store.get(key) || {};
-      const values = command.input.ExpressionAttributeValues || {};
-      const merged = {
-        ...existing,
-        [keyName]: key,
-        rating: (existing.rating !== undefined ? existing.rating : values[':seedRating']) + values[':ratingDiff'],
-        matchCount: (existing.matchCount !== undefined ? existing.matchCount : values[':seedMatchCount']) + values[':one'],
-        winCount: (existing.winCount !== undefined ? existing.winCount : values[':seedWinCount']) + values[':winInc'],
-        name: existing.name !== undefined ? existing.name : values[':name'],
-        type: existing.type !== undefined ? existing.type : values[':type'],
-        updatedAt: values[':updatedAt'],
-      };
-      store.set(key, merged);
-      return {};
-    }
+      return handleMockScanCommand(store);
+    case 'UpdateCommand':
+      return handleMockUpdateCommand(tableName, store, command);
     default:
       return {};
   }

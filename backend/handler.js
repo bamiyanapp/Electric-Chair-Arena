@@ -357,6 +357,147 @@ function weightedSampleWithoutReplacement(items, weightFn, count) {
   return result;
 }
 
+// 各キャラクターAIの設置(set)戦略。shuffledは呼び出し元(computeAiMove)で
+// 1回だけ計算されたシャッフル済み残り椅子で、Math.random()の呼び出し順序を
+// 変えないよう各戦略関数へそのまま渡す(既存テストが実際の乱数呼び出し列に
+// 依存しているため、この計算タイミングは崩せない)。
+function computeOkanoSetMove(remainingChairs, numToSet, shuffled) {
+  // 岡野：あえて大きな数字（10,11,12）に仕掛けるか、裏をかいて1に仕掛けるギャンブル戦略
+  const highChairs = remainingChairs.filter(c => c >= 9);
+  if (highChairs.length > 0 && Math.random() > 0.4) {
+    return {
+      setChairs: [...highChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet),
+      reasoning: `「ここは勝負どころ。あいつは絶対高得点（10〜12）を欲しがって座りにくるはず。そこに罠を張るのが勝負師ってものよ！」`,
+    };
+  }
+  return { setChairs: shuffled.slice(0, numToSet), reasoning: `「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」` };
+}
+
+function computeKoyabuSetMove(remainingChairs, numToSet, shuffled) {
+  // 小籔：理詰め。中間点数の椅子を好む
+  const midChairs = remainingChairs.filter(c => c >= 4 && c <= 8);
+  if (midChairs.length > 0) {
+    return {
+      setChairs: [...midChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet),
+      reasoning: `「まあ普通に考えて、大勝負に出る勇気もない、かといって1点とかで刻むのも嫌な奴は、中間の4〜8辺りに逃げるんですわ。そこを突くのがセオリー。」`,
+    };
+  }
+  return { setChairs: shuffled.slice(0, numToSet), reasoning: `「残った選択肢から考えて、ここが最も論理的な罠の位置ですわ。」` };
+}
+
+function computeJuniorSetMove(remainingChairs, numToSet) {
+  // ジュニア：座る側と同じく、両極端を避けた中央値寄りの重みで
+  // 仕掛ける位置を選ぶ(以前はai-randomと全く同じ実装だった)
+  const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
+  const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
+  const setChairs = weightedSampleWithoutReplacement(remainingChairs, c => 1 / (1 + (c - median) ** 2), numToSet);
+  return { setChairs, reasoning: `「ええか、両極端に逃げる奴はすぐ底が知れる。読み合いの本質はド真ん中付近に潜んどるんや。」` };
+}
+
+function computeRuleBasedSetMove(remainingChairs, numToSet, opponentScore, opponentShocks) {
+  // 期待値計算：相手があと1回の感電で敗北する場合は、得点効率を無視して
+  // 選ばれやすさが均等な椅子から仕留めにいく(相手の設置傾向と同様、
+  // 相手がどの椅子を選ぶかも不明なため、一様に確率的な狙い撃ちとなる)。
+  // それ以外の場面では、罠の位置は相手の設置傾向が不明なため、確実に
+  // 狙われる最高得点椅子に固定するのではなく、相手の勝利に必要な
+  // 残り得点を超える価値は無いとみなした実効価値に比例した確率で仕掛ける。
+  const isKillMode = opponentShocks >= GAME_RULES.MAX_SHOCKS - 1;
+  if (isKillMode) {
+    return {
+      setChairs: weightedSampleWithoutReplacement(remainingChairs, () => 1, numToSet),
+      reasoning: `「(計算機AI) 相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、確率的に狙い撃ちます。」`,
+    };
+  }
+  const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - opponentScore);
+  return {
+    setChairs: weightedSampleWithoutReplacement(remainingChairs, c => Math.min(c, effectiveMax), numToSet),
+    reasoning: `「(計算機AI) 相手の勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率分布に基づき電流を仕掛けます。」`,
+  };
+}
+
+// 各キャラクターAIの選択(choose)戦略。
+function computeOkanoChooseMove(remainingChairs) {
+  // 岡野：基本は高得点椅子ほど選ばれやすい重みで狙うが、性格に見合った
+  // 博打として一定確率でセオリーを無視した全ランダム選択を混ぜる
+  // (以前は高得点椅子があれば必ずその最大値を選ぶ完全決定的な実装で、
+  // 数ターンで座る位置を読み切られてしまっていた)
+  if (Math.random() < OKANO_CHOOSE_WILDCARD_PROB) {
+    const chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
+    return { chosenChair, reasoning: `「たまにはセオリー無視や！ここは直感一本、椅子${chosenChair}に全部賭ける！」` };
+  }
+  const chosenChair = weightedRandomChoice(remainingChairs, c => c * c);
+  return { chosenChair, reasoning: `「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！椅子${chosenChair}で一気に40点に近づいたる！」` };
+}
+
+function computeKoyabuChooseMove(remainingChairs) {
+  // 小籔：低得点椅子ほど選ばれやすい重みで、安全志向を保ちつつ
+  // 完全には決定的にしない
+  const maxChair = Math.max(...remainingChairs);
+  const chosenChair = weightedRandomChoice(remainingChairs, c => (maxChair - c + 1) ** 2);
+  return { chosenChair, reasoning: `「高得点は魅力やけど、そこに電流仕掛けられて感電してライフ削られるのは一番あきません。低得点で安全そうな椅子${chosenChair}から丁寧にいきまっせ。」` };
+}
+
+function computeJuniorChooseMove(remainingChairs) {
+  // ジュニア：両極端を避け、中央値付近ほど選ばれやすい重みで選ぶ
+  const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
+  const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
+  const chosenChair = weightedRandomChoice(remainingChairs, c => 1 / (1 + (c - median) ** 2));
+  return { chosenChair, reasoning: `「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中付近、椅子${chosenChair}が一番心理的に狙われにくい位置や。」` };
+}
+
+function computeRuleBasedChooseMove(remainingChairs, selfScore) {
+  // 期待値計算：罠の位置は相手の設置傾向が不明なため残り椅子に
+  // 一様分布すると仮定すると、生存確率はどの椅子を選んでも同じに
+  // なり、期待値は得点に比例する。よって常に最高得点椅子を選ぶ
+  // のではなく、自分の勝利に必要な残り得点を超える価値は無いと
+  // みなした実効価値に比例した確率で選ぶ(必要以上に高得点の椅子を
+  // 無理に狙いにいかない)
+  const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - selfScore);
+  const chosenChair = weightedRandomChoice(remainingChairs, c => Math.min(c, effectiveMax));
+  return { chosenChair, reasoning: `「(計算機AI) 勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率でシート${chosenChair}を選択。」` };
+}
+
+// 親（設置）：残りの椅子の1/3程度に電流をセットする。
+function computeSetMove(playerId, remainingChairs, opponentScore, opponentShocks) {
+  const numToSet = getNumToSet(remainingChairs.length);
+  const shuffled = [...remainingChairs].sort(() => 0.5 - Math.random());
+
+  let move;
+  if (playerId === 'ai-okano') {
+    move = computeOkanoSetMove(remainingChairs, numToSet, shuffled);
+  } else if (playerId === 'ai-koyabu') {
+    move = computeKoyabuSetMove(remainingChairs, numToSet, shuffled);
+  } else if (playerId === 'ai-junior') {
+    move = computeJuniorSetMove(remainingChairs, numToSet);
+  } else if (playerId === 'ai-rule-based') {
+    move = computeRuleBasedSetMove(remainingChairs, numToSet, opponentScore, opponentShocks);
+  } else {
+    // ランダム
+    move = { setChairs: shuffled.slice(0, numToSet), reasoning: `「ランダムに電流を配置。完全な確率論でのアプローチです。」` };
+  }
+
+  // 整合性を保つため、万が一空っぽなら補完
+  if (move.setChairs.length === 0) {
+    move.setChairs = shuffled.slice(0, numToSet);
+  }
+  return move;
+}
+
+// 子（選択）：椅子に座る。
+function computeChooseMove(playerId, remainingChairs, selfScore) {
+  if (playerId === 'ai-okano') {
+    return computeOkanoChooseMove(remainingChairs);
+  } else if (playerId === 'ai-koyabu') {
+    return computeKoyabuChooseMove(remainingChairs);
+  } else if (playerId === 'ai-junior') {
+    return computeJuniorChooseMove(remainingChairs);
+  } else if (playerId === 'ai-rule-based') {
+    return computeRuleBasedChooseMove(remainingChairs, selfScore);
+  }
+  const chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
+  return { chosenChair, reasoning: `「ランダムに椅子 ${chosenChair} を選択します。」` };
+}
+
 // AIの行動と思考。matchState(スコア・感電回数)は任意で、省略時(undefined)は
 // 各AIとも従来通り状態非依存のロジックにフォールバックする。matchState.opponentHistory
 // (相手の設置/選択履歴。issue #167)は現状ai-nash(getNashMove)のみが利用し、
@@ -370,118 +511,136 @@ function computeAiMove(playerId, role, remainingChairs, matchState = {}) {
   }
 
   if (role === 'set') {
-    // 親（設置）：残りの椅子の1/3程度に電流をセット
-    const numToSet = getNumToSet(remainingChairs.length);
-    const shuffled = [...remainingChairs].sort(() => 0.5 - Math.random());
-    
-    let setChairs;
-    let reasoning;
-
-    if (playerId === 'ai-okano') {
-      // 岡野：あえて大きな数字（10,11,12）に仕掛けるか、裏をかいて1に仕掛けるギャンブル戦略
-      const highChairs = remainingChairs.filter(c => c >= 9);
-      if (highChairs.length > 0 && Math.random() > 0.4) {
-        setChairs = [...highChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet);
-        reasoning = `「ここは勝負どころ。あいつは絶対高得点（10〜12）を欲しがって座りにくるはず。そこに罠を張るのが勝負師ってものよ！」`;
-      } else {
-        setChairs = shuffled.slice(0, numToSet);
-        reasoning = `「ギャンブラーの直感。ランダムに見えて一番えぐい位置に仕掛けてやったわ。」`;
-      }
-    } else if (playerId === 'ai-koyabu') {
-      // 小籔：理詰め。中間点数の椅子を好む
-      const midChairs = remainingChairs.filter(c => c >= 4 && c <= 8);
-      if (midChairs.length > 0) {
-        setChairs = [...midChairs].sort(() => 0.5 - Math.random()).slice(0, numToSet);
-        reasoning = `「まあ普通に考えて、大勝負に出る勇気もない、かといって1点とかで刻むのも嫌な奴は、中間の4〜8辺りに逃げるんですわ。そこを突くのがセオリー。」`;
-      } else {
-        setChairs = shuffled.slice(0, numToSet);
-        reasoning = `「残った選択肢から考えて、ここが最も論理的な罠の位置ですわ。」`;
-      }
-    } else if (playerId === 'ai-junior') {
-      // ジュニア：座る側と同じく、両極端を避けた中央値寄りの重みで
-      // 仕掛ける位置を選ぶ(以前はai-randomと全く同じ実装だった)
-      const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
-      const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
-      setChairs = weightedSampleWithoutReplacement(remainingChairs, c => 1 / (1 + (c - median) ** 2), numToSet);
-      reasoning = `「ええか、両極端に逃げる奴はすぐ底が知れる。読み合いの本質はド真ん中付近に潜んどるんや。」`;
-    } else if (playerId === 'ai-rule-based') {
-      // 期待値計算：相手があと1回の感電で敗北する場合は、得点効率を無視して
-      // 選ばれやすさが均等な椅子から仕留めにいく(相手の設置傾向と同様、
-      // 相手がどの椅子を選ぶかも不明なため、一様に確率的な狙い撃ちとなる)。
-      // それ以外の場面では、罠の位置は相手の設置傾向が不明なため、確実に
-      // 狙われる最高得点椅子に固定するのではなく、相手の勝利に必要な
-      // 残り得点を超える価値は無いとみなした実効価値に比例した確率で仕掛ける。
-      const isKillMode = opponentShocks >= GAME_RULES.MAX_SHOCKS - 1;
-      if (isKillMode) {
-        setChairs = weightedSampleWithoutReplacement(remainingChairs, () => 1, numToSet);
-        reasoning = `「(計算機AI) 相手はあと1回の感電で敗北します。得点効率よりも仕留めることを優先し、確率的に狙い撃ちます。」`;
-      } else {
-        const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - opponentScore);
-        setChairs = weightedSampleWithoutReplacement(remainingChairs, c => Math.min(c, effectiveMax), numToSet);
-        reasoning = `「(計算機AI) 相手の勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率分布に基づき電流を仕掛けます。」`;
-      }
-    } else {
-      // ランダム
-      setChairs = shuffled.slice(0, numToSet);
-      reasoning = `「ランダムに電流を配置。完全な確率論でのアプローチです。」`;
-    }
-
-    // 整合性を保つため、万が一空っぽなら補完
-    if (setChairs.length === 0) {
-      setChairs = shuffled.slice(0, numToSet);
-    }
-    return { setChairs, reasoning };
-  } else {
-    // 子（選択）：椅子に座る
-    let chosenChair;
-    let reasoning;
-
-    if (playerId === 'ai-okano') {
-      // 岡野：基本は高得点椅子ほど選ばれやすい重みで狙うが、性格に見合った
-      // 博打として一定確率でセオリーを無視した全ランダム選択を混ぜる
-      // (以前は高得点椅子があれば必ずその最大値を選ぶ完全決定的な実装で、
-      // 数ターンで座る位置を読み切られてしまっていた)
-      if (Math.random() < OKANO_CHOOSE_WILDCARD_PROB) {
-        chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
-        reasoning = `「たまにはセオリー無視や！ここは直感一本、椅子${chosenChair}に全部賭ける！」`;
-      } else {
-        chosenChair = weightedRandomChoice(remainingChairs, c => c * c);
-        reasoning = `「ここで小さい数字座ってチマチマ点稼いでも男がすたりますわ！椅子${chosenChair}で一気に40点に近づいたる！」`;
-      }
-    } else if (playerId === 'ai-koyabu') {
-      // 小籔：低得点椅子ほど選ばれやすい重みで、安全志向を保ちつつ
-      // 完全には決定的にしない
-      const maxChair = Math.max(...remainingChairs);
-      chosenChair = weightedRandomChoice(remainingChairs, c => (maxChair - c + 1) ** 2);
-      reasoning = `「高得点は魅力やけど、そこに電流仕掛けられて感電してライフ削られるのは一番あきません。低得点で安全そうな椅子${chosenChair}から丁寧にいきまっせ。」`;
-    } else if (playerId === 'ai-junior') {
-      // ジュニア：両極端を避け、中央値付近ほど選ばれやすい重みで選ぶ
-      const sortedAsc = [...remainingChairs].sort((a, b) => a - b);
-      const median = sortedAsc[Math.floor(sortedAsc.length / 2)];
-      chosenChair = weightedRandomChoice(remainingChairs, c => 1 / (1 + (c - median) ** 2));
-      reasoning = `「相手は俺が高得点を狙うと思ってるやろうし、安全に低いとこ座るのも見透かされてる。ここはあえてド真ん中付近、椅子${chosenChair}が一番心理的に狙われにくい位置や。」`;
-    } else if (playerId === 'ai-rule-based') {
-      // 期待値計算：罠の位置は相手の設置傾向が不明なため残り椅子に
-      // 一様分布すると仮定すると、生存確率はどの椅子を選んでも同じに
-      // なり、期待値は得点に比例する。よって常に最高得点椅子を選ぶ
-      // のではなく、自分の勝利に必要な残り得点を超える価値は無いと
-      // みなした実効価値に比例した確率で選ぶ(必要以上に高得点の椅子を
-      // 無理に狙いにいかない)
-      const effectiveMax = Math.max(0, GAME_RULES.WINNING_SCORE - selfScore);
-      chosenChair = weightedRandomChoice(remainingChairs, c => Math.min(c, effectiveMax));
-      reasoning = `「(計算機AI) 勝利に必要な残り得点(${effectiveMax}点)を踏まえた実効価値に比例した確率でシート${chosenChair}を選択。」`;
-    } else {
-      chosenChair = remainingChairs[Math.floor(Math.random() * remainingChairs.length)];
-      reasoning = `「ランダムに椅子 ${chosenChair} を選択します。」`;
-    }
-
-    return { chosenChair, reasoning };
+    return computeSetMove(playerId, remainingChairs, opponentScore, opponentShocks);
   }
+  return computeChooseMove(playerId, remainingChairs, selfScore);
 }
 
 // 自己対戦ベンチマーク(benchmark.js)から対局状態を考慮した手を直接
 // 計算するために公開する(issue #166)。
 module.exports.computeAiMove = computeAiMove;
+
+// startMatchの自己対戦シミュレーションにおける1ターン分の処理。scores・shocks・
+// logsは呼び出し元と共有するオブジェクト/配列をそのままミューテートし、
+// フィルタ後の残り椅子(次ターンのremainingChairs)を返す。
+function playStartMatchTurn(turn, p1, p2, remainingChairs, scores, shocks, logs) {
+  const isP1Setter = turn % 2 !== 0;
+  const setter = isP1Setter ? p1 : p2;
+  const chooser = isP1Setter ? p2 : p1;
+
+  // 親が電流を仕掛ける
+  const { setChairs, reasoning: setReasoning } = computeAiMove(setter.playerId, 'set', remainingChairs);
+  // 子が椅子を選択する
+  const { chosenChair, reasoning: chooseReasoning } = computeAiMove(chooser.playerId, 'choose', remainingChairs);
+
+  const isShocked = setChairs.includes(chosenChair);
+  let scoreGained = 0;
+
+  if (isShocked) {
+    if (isP1Setter) {
+      shocks.p2 += 1;
+      scores.p2 = 0;
+    } else {
+      shocks.p1 += 1;
+      scores.p1 = 0;
+    }
+  } else {
+    scoreGained = chosenChair;
+    if (isP1Setter) {
+      scores.p2 += scoreGained;
+    } else {
+      scores.p1 += scoreGained;
+    }
+  }
+
+  // 椅子を削除
+  const nextRemainingChairs = remainingChairs.filter(c => c !== chosenChair);
+
+  logs.push({
+    turn,
+    setter: setter.name,
+    chooser: chooser.name,
+    shockedChairs: setChairs,
+    chosenChair,
+    isShocked,
+    scoreGained,
+    scores: { ...scores },
+    shocks: { ...shocks },
+    remainingChairs: [...nextRemainingChairs],
+    reasoning: `${setReasoning}\n${chooseReasoning}`,
+  });
+
+  return nextRemainingChairs;
+}
+
+// 最終スコア・感電数から勝者のplayerId('draw'を含む)を判定する。
+function resolveStartMatchWinner(p1, p2, scores, shocks) {
+  if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || scores.p2 >= GAME_RULES.WINNING_SCORE) {
+    return p2.playerId;
+  }
+  if (shocks.p2 >= GAME_RULES.MAX_SHOCKS || scores.p1 >= GAME_RULES.WINNING_SCORE) {
+    return p1.playerId;
+  }
+  // 椅子残り1つ
+  if (scores.p1 !== scores.p2) {
+    return scores.p1 > scores.p2 ? p1.playerId : p2.playerId;
+  }
+  if (shocks.p1 !== shocks.p2) {
+    return shocks.p1 < shocks.p2 ? p1.playerId : p2.playerId;
+  }
+  return 'draw';
+}
+
+// 勝者判定結果に応じてELOレーティングを更新し、DBへ反映する。
+// 戻り値のwinnerは引き分け時はnull、ratingDiffは常にwinner側の符号付き変動量。
+async function applyStartMatchRatingUpdates(winnerId, p1, p2) {
+  let winner = null;
+  let ratingDiff = 0;
+
+  if (winnerId !== 'draw') {
+    winner = winnerId === p1.playerId ? p1 : p2;
+    const loser = winnerId === p1.playerId ? p2 : p1;
+
+    // ELOレーティング更新
+    ratingDiff = computeEloDiff(winner.rating, loser.rating, 1);
+
+    // DBへはこの時点の(加算前の)スナップショットを渡し、アトミックな加算として
+    // 反映する。ローカルの加算は下のレスポンス表示用のみに使う。
+    await Promise.all([
+      applyPlayerRatingUpdate(winner, ratingDiff, true),
+      applyPlayerRatingUpdate(loser, -ratingDiff, false),
+    ]);
+
+    winner.rating += ratingDiff;
+    loser.rating -= ratingDiff;
+
+    winner.winCount += 1;
+    winner.matchCount += 1;
+    loser.matchCount += 1;
+
+    winner.updatedAt = new Date().toISOString();
+    loser.updatedAt = new Date().toISOString();
+  } else {
+    // 引き分け
+    const p1Diff = computeEloDiff(p1.rating, p2.rating, 0.5);
+
+    await Promise.all([
+      applyPlayerRatingUpdate(p1, p1Diff, false),
+      applyPlayerRatingUpdate(p2, -p1Diff, false),
+    ]);
+
+    p1.rating += p1Diff;
+    p2.rating -= p1Diff;
+
+    p1.matchCount += 1;
+    p2.matchCount += 1;
+
+    p1.updatedAt = new Date().toISOString();
+    p2.updatedAt = new Date().toISOString();
+  }
+
+  return { winner, ratingDiff };
+}
 
 module.exports.startMatch = async (event) => {
   try {
@@ -526,118 +685,12 @@ module.exports.startMatch = async (event) => {
     };
 
     while (!isOver()) {
-      const isP1Setter = turn % 2 !== 0;
-      const setter = isP1Setter ? p1 : p2;
-      const chooser = isP1Setter ? p2 : p1;
-
-      // 親が電流を仕掛ける
-      const { setChairs, reasoning: setReasoning } = computeAiMove(setter.playerId, 'set', remainingChairs);
-      // 子が椅子を選択する
-      const { chosenChair, reasoning: chooseReasoning } = computeAiMove(chooser.playerId, 'choose', remainingChairs);
-
-      const isShocked = setChairs.includes(chosenChair);
-      let scoreGained = 0;
-
-      if (isShocked) {
-        if (isP1Setter) {
-          shocks.p2 += 1;
-          scores.p2 = 0;
-        } else {
-          shocks.p1 += 1;
-          scores.p1 = 0;
-        }
-      } else {
-        scoreGained = chosenChair;
-        if (isP1Setter) {
-          scores.p2 += scoreGained;
-        } else {
-          scores.p1 += scoreGained;
-        }
-      }
-
-      // 椅子を削除
-      remainingChairs = remainingChairs.filter(c => c !== chosenChair);
-
-      logs.push({
-        turn,
-        setter: setter.name,
-        chooser: chooser.name,
-        shockedChairs: setChairs,
-        chosenChair,
-        isShocked,
-        scoreGained,
-        scores: { ...scores },
-        shocks: { ...shocks },
-        remainingChairs: [...remainingChairs],
-        reasoning: `${setReasoning}\n${chooseReasoning}`,
-      });
-
+      remainingChairs = playStartMatchTurn(turn, p1, p2, remainingChairs, scores, shocks, logs);
       turn++;
     }
 
-    // 勝者判定
-    let winnerId = '';
-    if (shocks.p1 >= GAME_RULES.MAX_SHOCKS || scores.p2 >= GAME_RULES.WINNING_SCORE) {
-      winnerId = p2.playerId;
-    } else if (shocks.p2 >= GAME_RULES.MAX_SHOCKS || scores.p1 >= GAME_RULES.WINNING_SCORE) {
-      winnerId = p1.playerId;
-    } else {
-      // 椅子残り1つ
-      if (scores.p1 !== scores.p2) {
-        winnerId = scores.p1 > scores.p2 ? p1.playerId : p2.playerId;
-      } else {
-        if (shocks.p1 !== shocks.p2) {
-          winnerId = shocks.p1 < shocks.p2 ? p1.playerId : p2.playerId;
-        } else {
-          winnerId = 'draw';
-        }
-      }
-    }
-
-    let winner = null;
-    let ratingDiff = 0;
-
-    if (winnerId !== 'draw') {
-      winner = winnerId === p1.playerId ? p1 : p2;
-      const loser = winnerId === p1.playerId ? p2 : p1;
-
-      // ELOレーティング更新
-      ratingDiff = computeEloDiff(winner.rating, loser.rating, 1);
-
-      // DBへはこの時点の(加算前の)スナップショットを渡し、アトミックな加算として
-      // 反映する。ローカルの加算は下のレスポンス表示用のみに使う。
-      await Promise.all([
-        applyPlayerRatingUpdate(winner, ratingDiff, true),
-        applyPlayerRatingUpdate(loser, -ratingDiff, false),
-      ]);
-
-      winner.rating += ratingDiff;
-      loser.rating -= ratingDiff;
-
-      winner.winCount += 1;
-      winner.matchCount += 1;
-      loser.matchCount += 1;
-
-      winner.updatedAt = new Date().toISOString();
-      loser.updatedAt = new Date().toISOString();
-    } else {
-      // 引き分け
-      const p1Diff = computeEloDiff(p1.rating, p2.rating, 0.5);
-
-      await Promise.all([
-        applyPlayerRatingUpdate(p1, p1Diff, false),
-        applyPlayerRatingUpdate(p2, -p1Diff, false),
-      ]);
-
-      p1.rating += p1Diff;
-      p2.rating -= p1Diff;
-
-      p1.matchCount += 1;
-      p2.matchCount += 1;
-
-      p1.updatedAt = new Date().toISOString();
-      p2.updatedAt = new Date().toISOString();
-    }
+    const winnerId = resolveStartMatchWinner(p1, p2, scores, shocks);
+    const { winner, ratingDiff } = await applyStartMatchRatingUpdates(winnerId, p1, p2);
 
     const matchId = `match-${randomUUID()}`;
     const newMatch = {
@@ -798,85 +851,122 @@ module.exports.generateCommentary = async (event) => {
   }
 };
 
+function validateSaveMatchRequiredFields(matchId, player1Id, player2Id, winnerId) {
+  if (!matchId || !player1Id || !player2Id || !winnerId) {
+    return 'Missing parameters';
+  }
+  return undefined;
+}
+
+function validateSaveMatchWinnerId(player1Id, player2Id, winnerId) {
+  if (winnerId !== player1Id && winnerId !== player2Id && winnerId !== 'draw') {
+    return 'winnerId must be player1Id, player2Id, or "draw"';
+  }
+  return undefined;
+}
+
+function validateSaveMatchScoreFields(scores, shocks) {
+  const isNonNegativeInt = (value) => Number.isInteger(value) && value >= 0;
+  const isValidScoreOrShockField = (value) =>
+    value === undefined ||
+    (typeof value === 'object' && value !== null &&
+      isNonNegativeInt(value.p1) && isNonNegativeInt(value.p2));
+
+  if (!isValidScoreOrShockField(scores) || !isValidScoreOrShockField(shocks)) {
+    return 'scores and shocks must be objects with non-negative integer p1/p2 fields';
+  }
+  return undefined;
+}
+
+function validateSaveMatchMode(mode) {
+  if (mode !== undefined && mode !== 'human' && mode !== 'pvp') {
+    return 'mode must be "human" or "pvp"';
+  }
+  return undefined;
+}
+
+function validateSaveMatchLogs(logs) {
+  if (logs === undefined) return undefined;
+  if (!Array.isArray(logs)) {
+    return 'logs must be an array';
+  }
+
+  const seenChairs = new Set();
+  for (const log of logs) {
+    const chosenChair = log && log.chosenChair;
+    if (chosenChair === undefined) continue;
+
+    const isValidChair = Number.isInteger(chosenChair) && chosenChair >= 1 && chosenChair <= GAME_RULES.TOTAL_CHAIRS;
+    if (!isValidChair || seenChairs.has(chosenChair)) {
+      return 'logs contain an invalid or duplicate chosenChair';
+    }
+    seenChairs.add(chosenChair);
+  }
+  return undefined;
+}
+
+// saveMatchのリクエストボディを検証し、問題があればクライアント向け
+// エラーメッセージを返す。問題なければundefinedを返す。
+function validateSaveMatchRequest(body) {
+  const { matchId, player1Id, player2Id, winnerId, scores, shocks, logs, mode } = body;
+  return (
+    validateSaveMatchRequiredFields(matchId, player1Id, player2Id, winnerId) ||
+    validateSaveMatchWinnerId(player1Id, player2Id, winnerId) ||
+    validateSaveMatchScoreFields(scores, shocks) ||
+    validateSaveMatchMode(mode) ||
+    validateSaveMatchLogs(logs)
+  );
+}
+
+// 人間対AI戦の場合のみAI側のレーティングを更新しDBへ反映する(PVP等、
+// 両者が人間の疑似プレイヤーの場合は更新自体が発生せずratingDiff: 0を返す)。
+// 戻り値のratingDiff/aiRatingDiffはいずれもAI視点の符号付き変動量。
+async function applyAiRatingUpdateForSaveMatch(player1Id, player2Id, winnerId, p1, p2) {
+  const isPlayer1Human = isHumanPseudoPlayerId(player1Id);
+  const isPlayer2Human = isHumanPseudoPlayerId(player2Id);
+  if (isPlayer1Human === isPlayer2Human) {
+    return { ratingDiff: 0, aiRatingDiff: null };
+  }
+
+  const aiPlayer = isPlayer1Human ? p2 : p1;
+  const isAiWinner = winnerId === aiPlayer.playerId;
+  const isDraw = winnerId === 'draw';
+  const humanRating = 1500;
+
+  let actualAi;
+  if (isAiWinner) {
+    actualAi = 1;
+  } else if (isDraw) {
+    actualAi = 0.5;
+  } else {
+    actualAi = 0;
+  }
+  const ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
+
+  await applyPlayerRatingUpdate(aiPlayer, ratingDiff, isAiWinner);
+
+  aiPlayer.rating += ratingDiff;
+  aiPlayer.matchCount += 1;
+  if (isAiWinner) aiPlayer.winCount += 1;
+  aiPlayer.updatedAt = new Date().toISOString();
+
+  return { ratingDiff, aiRatingDiff: ratingDiff };
+}
+
 module.exports.saveMatch = async (event) => {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const { matchId, player1Id, player2Id, winnerId, scores, shocks, logs, mode } = body;
 
-    if (!matchId || !player1Id || !player2Id || !winnerId) {
+    const validationError = validateSaveMatchRequest(body);
+    if (validationError) {
       return {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
         },
-        body: JSON.stringify({ error: 'Missing parameters' }),
+        body: JSON.stringify({ error: validationError }),
       };
-    }
-
-    if (winnerId !== player1Id && winnerId !== player2Id && winnerId !== 'draw') {
-      return {
-        statusCode: 400,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({ error: 'winnerId must be player1Id, player2Id, or "draw"' }),
-      };
-    }
-
-    const isNonNegativeInt = (value) => Number.isInteger(value) && value >= 0;
-    const isValidScoreOrShockField = (value) =>
-      value === undefined ||
-      (typeof value === 'object' && value !== null &&
-        isNonNegativeInt(value.p1) && isNonNegativeInt(value.p2));
-
-    if (!isValidScoreOrShockField(scores) || !isValidScoreOrShockField(shocks)) {
-      return {
-        statusCode: 400,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({ error: 'scores and shocks must be objects with non-negative integer p1/p2 fields' }),
-      };
-    }
-
-    if (mode !== undefined && mode !== 'human' && mode !== 'pvp') {
-      return {
-        statusCode: 400,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-        },
-        body: JSON.stringify({ error: 'mode must be "human" or "pvp"' }),
-      };
-    }
-
-    if (logs !== undefined) {
-      if (!Array.isArray(logs)) {
-        return {
-          statusCode: 400,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-          },
-          body: JSON.stringify({ error: 'logs must be an array' }),
-        };
-      }
-
-      const seenChairs = new Set();
-      for (const log of logs) {
-        const chosenChair = log && log.chosenChair;
-        if (chosenChair === undefined) continue;
-
-        const isValidChair = Number.isInteger(chosenChair) && chosenChair >= 1 && chosenChair <= GAME_RULES.TOTAL_CHAIRS;
-        if (!isValidChair || seenChairs.has(chosenChair)) {
-          return {
-            statusCode: 400,
-            headers: {
-              'Access-Control-Allow-Origin': '*',
-            },
-            body: JSON.stringify({ error: 'logs contain an invalid or duplicate chosenChair' }),
-          };
-        }
-        seenChairs.add(chosenChair);
-      }
     }
 
     const [p1, p2] = await Promise.all([
@@ -894,39 +984,7 @@ module.exports.saveMatch = async (event) => {
       };
     }
 
-    let ratingDiff = 0;
-    // AIの視点での符号付きレーティング変動。PVP等AIが関与しない試合ではnullのまま。
-    let aiRatingDiff = null;
-
-    // AIのレーティングを更新 (相手が人間/ローカルPVPの場合。疑似プレイヤー側は
-    // レーティングを持たないため更新・保存しない。PVP同士(p1 vs p2)は
-    // 両者とも疑似プレイヤーのため更新自体が発生しない)
-    const isPlayer1Human = isHumanPseudoPlayerId(player1Id);
-    const isPlayer2Human = isHumanPseudoPlayerId(player2Id);
-    if (isPlayer1Human !== isPlayer2Human) {
-      const aiPlayer = isPlayer1Human ? p2 : p1;
-      const isAiWinner = winnerId === aiPlayer.playerId;
-      const isDraw = winnerId === 'draw';
-      const humanRating = 1500;
-
-      let actualAi;
-      if (isAiWinner) {
-        actualAi = 1;
-      } else if (isDraw) {
-        actualAi = 0.5;
-      } else {
-        actualAi = 0;
-      }
-      ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
-      aiRatingDiff = ratingDiff;
-
-      await applyPlayerRatingUpdate(aiPlayer, ratingDiff, isAiWinner);
-
-      aiPlayer.rating += ratingDiff;
-      aiPlayer.matchCount += 1;
-      if (isAiWinner) aiPlayer.winCount += 1;
-      aiPlayer.updatedAt = new Date().toISOString();
-    }
+    const { ratingDiff, aiRatingDiff } = await applyAiRatingUpdateForSaveMatch(player1Id, player2Id, winnerId, p1, p2);
 
     const newMatch = {
       matchId,
