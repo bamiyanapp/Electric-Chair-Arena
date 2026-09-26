@@ -37,7 +37,7 @@ function computeEloDiff(playerRating, opponentRating, result) {
 // クライアントに返さず、相関用のrequestIdとともにサーバー側ログにのみ出力する。
 function errorResponse(statusCode, clientMessage, logContext, error) {
   const requestId = `${logContext}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  console.error(`[${requestId}] ${logContext} failed:`, error);
+  console.error('[%s] %s failed:', requestId, logContext, error);
   return {
     statusCode,
     headers: { 'Access-Control-Allow-Origin': '*' },
@@ -94,7 +94,7 @@ async function applyPlayerRatingUpdate(player, ratingDiff, isWin) {
       },
     }));
   } catch (error) {
-    console.error(`Failed to update player ${player.playerId} rating in DynamoDB:`, error);
+    console.error('Failed to update player %s rating in DynamoDB:', player.playerId, error);
   }
 }
 
@@ -122,7 +122,7 @@ async function getPlayerById(playerId) {
       return result.Item;
     }
   } catch (error) {
-    console.error(`Failed to get player ${playerId} from DynamoDB:`, error);
+    console.error('Failed to get player %s from DynamoDB:', playerId, error);
   }
   const fallback = initialPlayers.find(p => p.playerId === playerId);
   return fallback ? { ...fallback } : null;
@@ -149,7 +149,7 @@ async function getMatchById(matchId) {
       return result.Item;
     }
   } catch (error) {
-    console.error(`Failed to get match ${matchId} from DynamoDB:`, error);
+    console.error('Failed to get match %s from DynamoDB:', matchId, error);
   }
   const fallback = initialMatches.find(m => m.matchId === matchId);
   return fallback ? { ...fallback } : null;
