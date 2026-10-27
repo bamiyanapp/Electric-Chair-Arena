@@ -15,6 +15,10 @@ jobs:
   ci:
     uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.114.1
     with:
+      # 呼び出し元の上記usesと同じref。reusable-ci.yml自身をローカル
+      # composite action・スクリプト用に再チェックアウトする際に使われる
+      # 必須入力（dev-standards issue #1071）。
+      self_ref: v2.114.1
       frontend_dir: frontend
       backend_dir: backend
       node_version: '24'
