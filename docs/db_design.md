@@ -1,6 +1,6 @@
 # データベース設計（インメモリ実装 + DynamoDB書き込み）
 
-現状の実装（`backend/handler.js`）は、読み取り（一覧・詳細取得）はLambdaプロセス内のインメモリ配列（`playersDb`, `matchesDb`）を参照する。一方、試合終了時（`startMatch` / `saveMatch`）にはスコアボードを `Matches` DynamoDBテーブル（`backend/serverless.yml` の `MatchesTable` リソース、`backend/dynamoClient.js`）へも書き込む。DynamoDBへの書き込みに失敗した場合もAPIレスポンスは通常通り返す（ベストエフォートの記録であり、書き込み失敗が対戦結果のレスポンスをブロックしない）。以下は現在のデータ構造を記述したものであり、DynamoDBのスキーマとしても利用される。
+現状の実装（`backend/handler.js`）は、読み取り（一覧・詳細取得）についてLambdaプロセス内のインメモリ配列を参照する（`playersDb`, `matchesDb`）。一方、試合終了時（`startMatch` / `saveMatch`）にはスコアボードを `Matches` DynamoDBテーブルへも書き込む。テーブル定義は `backend/serverless.yml` の `MatchesTable` リソース、書き込み処理は `backend/dynamoClient.js` を参照する。DynamoDBへの書き込みに失敗した場合もAPIレスポンスは通常通り返す（ベストエフォートの記録であり、書き込み失敗が対戦結果のレスポンスをブロックしない）。以下は現在のデータ構造を記述したものであり、DynamoDBのスキーマとしても利用される。
 
 ## 1. データ構造
 
@@ -15,7 +15,7 @@
   - `winCount` (Number): 人間プレイヤーに対する勝利数
   - `matchCount` (Number): 対戦数
 
-学習用パラメーター（重みテーブル）は実装されていない。AIの行動選択は `backend/handler.js` 内のヒューリスティック分岐ロジック、または `backend/nash.js` のナッシュ均衡計算によって都度決定され、対戦を重ねてもパラメーターは更新されない。「成長」に相当するのは `rating` のELO更新のみ。
+学習用パラメーター（重みテーブル）は実装されていない。AIの行動選択は `backend/handler.js` 内のヒューリスティック分岐ロジック、または `backend/nash.js` のナッシュ均衡計算によって都度決定される。対戦を重ねてもパラメーターは更新されない。「成長」に相当するのは `rating` のELO更新のみ。
 
 ### 1.2 Matches
 人間とAIモデル、または人間同士の各対戦結果と詳細なターンログを保持する。
