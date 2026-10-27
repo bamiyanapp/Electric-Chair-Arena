@@ -101,6 +101,8 @@ graph TD
     I --> J;
 ```
 
+![System Architecture (rendered)](https://raw.githubusercontent.com/bamiyanapp/Electric-Chair-Arena/docs-diagrams/latest/README-1.png)
+
 ## Screen Transitions
 
 ```mermaid
@@ -113,6 +115,8 @@ graph TD
     D -->|戻る| A
     C -->|戻る| A
 ```
+
+![Screen Transitions (rendered)](https://raw.githubusercontent.com/bamiyanapp/Electric-Chair-Arena/docs-diagrams/latest/README-2.png)
 
 ## Tech Stack
 

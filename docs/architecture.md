@@ -57,6 +57,8 @@ graph TD
     Lambda --> LLM[Gemini API（実況生成のみ）]
 ```
 
+![インフラ構成図 (rendered)](https://raw.githubusercontent.com/bamiyanapp/Electric-Chair-Arena/docs-diagrams/latest/architecture.png)
+
 ## 5. デプロイフロー
 
 ### 5.1 ローカル環境でのデプロイ・実行
