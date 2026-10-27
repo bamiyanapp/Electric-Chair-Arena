@@ -2,7 +2,7 @@
 
 ## 概要
 
-Electric Chair Arena は、水曜日のダウンタウンで放送された「電気イスゲーム」を再現し、人間プレイヤーが多彩な特徴を持つAIモデルと対戦し、その戦績を通じてAIモデルが学習・成長していくことを目的としたプロジェクトです。
+Electric Chair Arena は、水曜日のダウンタウンで放送された「電気イスゲーム」を再現したプロジェクトです。人間プレイヤーが多彩な特徴を持つAIモデルと対戦し、その戦績を通じてAIモデルが学習・成長していくことを目的としています。
 
 人間対AIの駆け引きや心理戦をWeb上で楽しむことができると同時に、対戦結果や行動ログをフィードバックすることで、AIモデルが段階的により強力な戦術を身につけていく仕組みを提供します。
 
@@ -231,25 +231,25 @@ AI勝利数 / 人間との総試合数
 # CI/CD とデプロイ
 
 ## GitHub Pages へのデプロイ設定
-本プロジェクトのフロントエンドは、GitHub Actions の CD ワークフロー（`cd.yml`）により GitHub Actions 経由（`actions/deploy-pages`）で GitHub Pages へデプロイされます（[#189](https://github.com/bamiyanapp/Electric-Chair-Arena/issues/189)）。`main` ブランチへの変更がプッシュされると、フロントエンドのビルド成果物（`out/`）が自動的にビルド・デプロイされます。以前は `gh-pages` ブランチへpublishする方式でしたが、`dev-standards` の `deploy-github-pages` 複合actionへ移行した際にこの方式へ切り替えました。`gh-pages` ブランチはこの移行以降使用されないため、削除して構いません。
+本プロジェクトのフロントエンドは、GitHub Actions の CD ワークフロー（`cd.yml`）によりデプロイされます（[#189](https://github.com/bamiyanapp/Electric-Chair-Arena/issues/189)）。デプロイ経路は GitHub Actions 経由（`actions/deploy-pages`）で GitHub Pages へ公開する方式です。`main` ブランチへの変更がプッシュされると、フロントエンドのビルド成果物（`out/`）が自動的にビルド・デプロイされます。以前は `gh-pages` ブランチへpublishする方式でしたが、`dev-standards` の `deploy-github-pages` 複合actionへ移行しました。この方式へ切り替えて以降、`gh-pages` ブランチは使用されないため削除して構いません。
 
-**移行時に一度だけ必要な手動設定（重要）**: この方式は、リポジトリの **Settings > Pages > Build and deployment > Source** が **GitHub Actions** になっていることを前提とします。`gh-pages` ブランチ方式からの移行直後はまだ **Deploy from a branch** のままになっているため、以下の手順で変更してください（スマートフォンのブラウザから実施可能です）。
+**移行時に一度だけ必要な手動設定（重要）**: この方式は、ある前提を置いています。リポジトリの **Settings > Pages > Build and deployment > Source** が **GitHub Actions** になっていることです。`gh-pages` ブランチ方式からの移行直後はまだ **Deploy from a branch** のままです。以下の手順で変更してください（スマートフォンのブラウザから実施可能です）。
 
 1. GitHub のリポジトリページを開きます。
 2. **Settings** タブをクリックします。
 3. 左側のサイドバーから **Pages** を選択します。
 4. **Build and deployment** セクションの **Source** を **GitHub Actions** に変更します。
 
-この設定変更が完了するまでは、CDワークフローの `deploy-frontend` job が失敗します（`gh-pages` ブランチ上の既存の公開内容はそのまま保持されるため、サイト自体が即座に見られなくなることはありません）。設定変更後、再度 `main` へのpush（またはワークフローの再実行）でデプロイが成功します。
+この設定変更が完了するまでは、CDワークフローの `deploy-frontend` job が失敗します。`gh-pages` ブランチ上の既存の公開内容はそのまま保持されるため、サイト自体が即座に見られなくなることはありません。設定変更後、再度 `main` へのpush（またはワークフローの再実行）でデプロイが成功します。
 
 ### リモートでCSSやJavaScriptなどのアセットが読み込めない（スタイルが崩れる・動かない）場合の対策
-GitHub Pages（またはカスタムのサブディレクトリを持つ環境）にデプロイした際、「ローカル環境ではCSSやJSが効いているが、リモートにデプロイするとCSSが適用されず画面が崩れる」という現象が頻発することがあります。
+GitHub Pages（またはカスタムのサブディレクトリを持つ環境）にデプロイした際に起こりやすい現象があります。「ローカル環境ではCSSやJSが効いているが、リモートにデプロイするとCSSが適用されず画面が崩れる」というものです。
 
 #### 原因
-Next.jsを静的エクスポート（`output: 'export'`）し、サブディレクトリ配下（GitHub Pagesの `https://<username>.github.io/<repository-name>/` など）にホストする場合を考えます。静的アセットへのパス（`/` で始まる絶対パス）にサブディレクトリ名が含まれていないと、ブラウザがファイルを読み込めず404エラーとなります。
+Next.jsを静的エクスポート（`output: 'export'`）し、サブディレクトリ配下にホストする場合を考えます。例えば GitHub Pages の `https://<username>.github.io/<repository-name>/` です。静的アセットへのパス（`/` で始まる絶対パス）にサブディレクトリ名が含まれていないと問題が起きます。ブラウザがファイルを読み込めず、404エラーとなります。
 
 #### 対策と再発防止策
-本プロジェクトでは、リポジトリの変更やフォークに対応するため、`frontend/next.config.mjs` にてビルド環境（GitHub Actions）の環境変数からリポジトリ名を自動抽出し、`basePath` および `assetPrefix` に設定する動的解決の仕組みを導入しています。
+本プロジェクトでは、リポジトリの変更やフォークに対応するため、動的解決の仕組みを導入しています。`frontend/next.config.mjs` にて、ビルド環境（GitHub Actions）の環境変数からリポジトリ名を自動抽出します。これを `basePath` および `assetPrefix` に設定します。
 
 ```javascript
 const isGithubActions = process.env.GITHUB_ACTIONS === 'true';
@@ -268,8 +268,8 @@ const nextConfig = {
 
 #### トラブルシューティング
 上記の設定をしても、アセットの読み込みに失敗する場合は以下の項目を確認してください。
-1. **GitHub Actions の環境変数確認**: Build ジョブで `GITHUB_REPOSITORY` 環境変数が渡されているか確認します（GitHub Actions の標準環境変数なので、標準構成であれば自動で設定されます）。
-2. **アセットURLの確認**: ブラウザの開発者ツール（F12）の `Console` または `Network` タブを開きます。読み込みに失敗しているCSSやJSのURL（例: `https://<username>.github.io/Electric-Chair-Arena/_next/static/...`）が、実際のリポジトリ名と一致しているか確認してください。もし不一致がある場合は、`frontend/next.config.mjs` 内の `repoName` が適切に評価されているかをデバッグしてください。
+1. **GitHub Actions の環境変数確認**: Build ジョブで `GITHUB_REPOSITORY` 環境変数が渡されているか確認します。GitHub Actions の標準環境変数のため、標準構成であれば自動で設定されます。
+2. **アセットURLの確認**: ブラウザの開発者ツール（F12）の `Console` または `Network` タブを開きます。読み込みに失敗しているCSSやJSのURL（例: `https://<username>.github.io/Electric-Chair-Arena/_next/static/...`）を確認します。このURLが実際のリポジトリ名と一致しているか確認してください。もし不一致がある場合は、`frontend/next.config.mjs` 内の `repoName` が適切に評価されているかをデバッグしてください。
 
 ---
 
@@ -288,7 +288,7 @@ const nextConfig = {
 ゲーム内に登場するデフォルトのAIモデル情報は、以下の手順で初期セットアップできます。
 
 1. `backend/seed.js` を実行し、既定のAIモデル（`backend/seedData.js` に定義）をDynamoDBへ投入します（既存データは上書きしません）。
-2. 開発環境ではローカルの DynamoDB（`serverless-dynamodb-local` プラグインによるインメモリのエミュレーション、`sls dynamodb start`）に対して手動で実行します。本番環境（DynamoDB）へは、CDワークフロー（`cd.yml`）のバックエンドデプロイ時に自動実行されます。
+2. 開発環境ではローカルの DynamoDB に対して手動で実行します（`serverless-dynamodb-local` プラグインによるエミュレーション、`sls dynamodb start`）。本番環境（DynamoDB）へは、CDワークフロー（`cd.yml`）のバックエンドデプロイ時に自動で実行されます。
 
 ---
 

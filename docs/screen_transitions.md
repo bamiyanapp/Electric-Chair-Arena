@@ -20,6 +20,6 @@
 
 ## 実装方針 (Next.js App Router)
 
-- `frontend/src/app/page.tsx` において、`next/navigation` の `useSearchParams`, `useRouter`, `usePathname` を利用してURLのクエリパラメーターを読み取り・更新します。
+- `frontend/src/app/page.tsx` において、URLのクエリパラメーターを読み取り・更新します。`next/navigation` の `useSearchParams`, `useRouter`, `usePathname` を利用します。
 - `currentView` の初期状態をURLから決定し、ユーザーが画面を切り替えた際には `router.push` または `window.history.pushState` を用いてURLを更新します。
 - これにより、ユーザーは特定の画面（例: リーダーボード）のURLをブックマークし、後から直接開くことが可能になります。
