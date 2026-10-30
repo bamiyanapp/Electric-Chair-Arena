@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   ci:
-    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.114.3
+    uses: bamiyanapp/dev-standards/.github/workflows/reusable-ci.yml@v2.114.5
     with:
       # 呼び出し元の上記usesと同じref。reusable-ci.yml自身をローカル
       # composite action・スクリプト用に再チェックアウトする際に使われる
