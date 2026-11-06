@@ -7,6 +7,7 @@ const { getNashMove } = require('./nash.js');
 const { PutCommand, GetCommand, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
 const { initialPlayers, initialMatches } = require('./seedData.js');
+const { buildClientErrorLogPayload } = require('./clientErrorReporting.js');
 
 const ELO_K_FACTOR = 32;
 
@@ -1011,5 +1012,35 @@ module.exports.saveMatch = async (event) => {
     };
   } catch (error) {
     return errorResponse(500, 'Failed to save match', 'saveMatch', error);
+  }
+};
+
+// フロントエンドのErrorBoundary（frontend/src/components/ErrorBoundary.tsx）が
+// 捕捉した未処理例外を受け取り、CloudWatch Logsへ記録する（dev-standards/docs/
+// client-error-reporting-pattern.md）。認証の無い公開エンドポイントのため、内容の
+// 真偽は検証できない前提。buildClientErrorLogPayloadが長さ上限超過の切り詰め・
+// 必須項目(message)の検証を行う
+module.exports.reportClientError = async (event) => {
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const payload = buildClientErrorLogPayload(body);
+    if (!payload) {
+      return {
+        statusCode: 400,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ error: 'Missing parameters' }),
+      };
+    }
+
+    // Lambdaの標準動作でCloudWatch Logsに残る
+    console.error('[ClientError]', payload);
+
+    return {
+      statusCode: 200,
+      headers: { 'Access-Control-Allow-Origin': '*' },
+      body: JSON.stringify({ message: 'Error reported successfully' }),
+    };
+  } catch (error) {
+    return errorResponse(500, 'Failed to report client error', 'reportClientError', error);
   }
 };

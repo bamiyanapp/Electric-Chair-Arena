@@ -80,6 +80,15 @@ functions:
           path: generate-commentary
           method: post
           cors: true
+  # フロントエンドErrorBoundary（dev-standards/docs/client-error-reporting-pattern.md）が
+  # 捕捉した未処理例外をCloudWatch Logsへ記録する
+  reportClientError:
+    handler: handler.reportClientError
+    events:
+      - http:
+          path: report-client-error
+          method: post
+          cors: true
   # サイレント障害検知（dev-standards/docs/ops-monitoring-pattern.md）。各APIの
   # Lambdaエラーを下記CloudWatch Alarmで検知し、SNS経由で本関数を起動して
   # 運用監視専用LINE Botへ通知する。OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN・
