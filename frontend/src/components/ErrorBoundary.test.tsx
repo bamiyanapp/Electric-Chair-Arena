@@ -40,7 +40,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('reports the error to reportUrl when provided', () => {
-    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true }));
+    const fetchMock = vi.fn(async () => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
     render(
@@ -50,9 +50,9 @@ describe('ErrorBoundary', () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as Parameters<typeof fetch>;
     expect(url).toBe('https://example.com/report-client-error');
-    const body = JSON.parse(init.body as string);
+    const body = JSON.parse(init!.body as string);
     expect(body.message).toBe('テスト用の例外');
     expect(body.url).toBe(window.location.href);
   });
