@@ -26,7 +26,7 @@
   - 保存済みの対戦結果を一覧表示する画面。
 
 ### 3.2 バックエンド (AWS Lambda / Game Engine)
-8つのLambda関数（`backend/serverless.yml`）で構成される。
+10個のLambda関数（`backend/serverless.yml`）で構成される。
 - **getPlayers / getLeaderboard**:
   - AIモデル一覧、レーティング順のランキングを返す。
 - **startMatch / saveMatch**:
@@ -37,6 +37,10 @@
   - 選択されたAIモデル（個性AI3種、ランダムAI、期待値計算AI、ナッシュ均衡AI）の行動選択ロジックを呼び出し、椅子選択/電流設置の意思決定と寸劇調の理由付きセリフを返す。
 - **generateCommentary**:
   - Gemini API を呼び出し、対戦の実況テキストを生成する（`GEMINI_API` 未設定時はモック文言を返す）。
+- **reportClientError**:
+  - フロントエンドのError Boundaryが捕捉した未処理例外を受け取り、CloudWatch Logsへ記録する。
+- **opsAlert**:
+  - CloudWatch AlarmがSNS経由で起動する運用監視用の関数。各APIのLambdaエラーを運用監視専用LINE Botへ通知する。
 
 学習パラメータ（重みテーブル）の更新機構は実装されていない。AIの「成長」は対戦結果に応じたELOレーティングの加減算のみ。
 

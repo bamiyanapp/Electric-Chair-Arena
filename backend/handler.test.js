@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import Module from 'module';
 import { GAME_RULES } from './rules.js';
@@ -102,7 +102,7 @@ Module._cache[dynamoClientPath] = fakeDynamoClientModule;
 // ここでは意図的にrequireFromHere(CJSのrequire)を使う。
 delete Module._cache[handlerPath];
 
-const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove } = requireFromHere('./handler.js');
+const { getPlayers, startMatch, getMatchResult, getLeaderboard, getMatches, saveMatch, generateCommentary, getAiMove, reportClientError } = requireFromHere('./handler.js');
 
 describe('Backend Handler Specification Tests', () => {
   beforeEach(() => {
@@ -1058,5 +1058,54 @@ describe('Backend Handler Specification Tests', () => {
     } finally {
       randomSpy.mockRestore();
     }
+  });
+
+  describe('reportClientError', () => {
+    let consoleErrorSpy;
+
+    beforeEach(() => {
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('logs the error payload and returns success when message is provided', async () => {
+      const response = await reportClientError({
+        body: JSON.stringify({
+          message: 'テスト用の例外',
+          stack: 'Error: テスト用の例外\n  at Component',
+          componentStack: 'at Component',
+          url: 'https://example.com/',
+        }),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body)).toEqual({ message: 'Error reported successfully' });
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[ClientError]',
+        expect.objectContaining({ message: 'テスト用の例外' }),
+      );
+    });
+
+    it('returns 400 when message is missing', async () => {
+      const response = await reportClientError({ body: JSON.stringify({ stack: 'no message' }) });
+
+      expect(response.statusCode).toBe(400);
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when body is empty', async () => {
+      const response = await reportClientError({});
+
+      expect(response.statusCode).toBe(400);
+    });
+
+    it('returns 500 when body is not valid JSON', async () => {
+      const response = await reportClientError({ body: '{invalid-json' });
+
+      expect(response.statusCode).toBe(500);
+    });
   });
 });

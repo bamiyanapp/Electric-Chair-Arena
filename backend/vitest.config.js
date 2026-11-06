@@ -12,6 +12,7 @@ export default defineConfig({
         // テスト（opsAlertNotifier.test.js、node:test形式）で担保済みのため、
         // このリポジトリのカバレッジ計測対象には含めない
         'opsAlertNotifier.js',
+        'clientErrorReporting.js',
         '**/node_modules/**',
         '**/dist/**',
       ],
