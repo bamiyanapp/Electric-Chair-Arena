@@ -26,6 +26,7 @@ jobs:
       enable_standards_check: true
       enable_duplication_check: true
       duplication_threshold: 2
+      enable_architecture_check: true
       coverage_threshold: 90
       coverage_metrics: 'statements,functions,lines'
       coverage_check_per_file: true
