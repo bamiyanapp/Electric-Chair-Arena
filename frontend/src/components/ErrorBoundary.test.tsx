@@ -40,7 +40,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('reports the error to reportUrl when provided', () => {
-    const fetchMock = vi.fn(async () => ({ ok: true }));
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
 
     render(
