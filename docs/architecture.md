@@ -9,6 +9,7 @@
 - **Database**: 読み取りはLambda プロセス内のインメモリ配列（`backend/handler.js` の `playersDb` / `matchesDb`）を使用。試合終了時（`startMatch` / `saveMatch`）のスコアボードはDynamoDB（`MatchesTable`）へも書き込む（書き込み失敗時もレスポンスはブロックしないベストエフォート方式）。
 - **Infrastructure**: OSLS (Serverless Framework v3互換)
 - **AI Integration**: Gemini API は対戦の実況テキスト生成（`generateCommentary`）にのみ使用。AI自体の行動決定はLLMを使わない。`backend/handler.js` 内のヒューリスティックロジック（個性付きAI3種・ランダムAI・期待値計算AI）と `backend/nash.js` のナッシュ均衡AIで行う。OpenAI APIは使用していない。
+- **運用監視**: 各APIのLambdaでエラーが発生すると、CloudWatch Alarm（Errorsメトリクス）が発火する。SNS Topic経由で`opsAlert` Lambda（`backend/opsAlertLambda.js`）を起動し、運用監視専用LINE Bot（全プロダクト共通）へ通知する。詳細は`dev-standards/docs/ops-monitoring-pattern.md`を参照する。
 
 ## 3. コンポーネント構成
 

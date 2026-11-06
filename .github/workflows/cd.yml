@@ -54,6 +54,13 @@ jobs:
       # 内部stepはこのjobの一部として実行されるため、job-level envを継承する。
       # deploy-frontend jobのNEXT_PUBLIC_API_URLと同じ方式）。
       GEMINI_API: ${{ secrets.GEMINI_API }}
+      # dev-standards/docs/ops-monitoring-pattern.md。運用監視専用LINE Bot
+      # （全プロダクト共通）のチャンネルアクセストークン・通知先ユーザーID。
+      # 未設定の場合、serverless.yml側で空文字列にフォールバックしデプロイ自体は
+      # 妨げない（CloudWatch Alarmの発火・検知には影響しない。LINE通知の送信時に
+      # のみエラーになる）
+      OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN }}
+      OPS_ALERT_LINE_USER_ID: ${{ secrets.OPS_ALERT_LINE_USER_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

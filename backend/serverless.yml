@@ -80,6 +80,22 @@ functions:
           path: generate-commentary
           method: post
           cors: true
+  # サイレント障害検知（dev-standards/docs/ops-monitoring-pattern.md）。各APIの
+  # Lambdaエラーを下記CloudWatch Alarmで検知し、SNS経由で本関数を起動して
+  # 運用監視専用LINE Botへ通知する。OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN・
+  # OPS_ALERT_LINE_USER_IDが未設定の場合、通知送信時にエラーになる
+  # （アラーム自体の発火・検知には影響しない）
+  opsAlert:
+    handler: opsAlertLambda.handler
+    environment:
+      OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN: ${env:OPS_ALERT_LINE_CHANNEL_ACCESS_TOKEN, ''}
+      OPS_ALERT_LINE_USER_ID: ${env:OPS_ALERT_LINE_USER_ID, ''}
+    events:
+      - sns:
+          arn: !Ref OpsAlertTopic
+          # arnがRef（動的な値）の場合、Serverless Frameworkがサブスクリプション
+          # 設定のためにTopic名を解決できないため明示的に指定する
+          topicName: ${self:service}-${sls:stage}-ops-alert
 
 plugins:
   - serverless-offline
@@ -118,3 +134,158 @@ resources:
         KeySchema:
           - AttributeName: playerId
             KeyType: HASH
+
+    # サイレント障害検知（dev-standards/docs/ops-monitoring-pattern.md）。
+    # 各APIのLambdaでエラーが1件以上発生したら、下記Alarmが本Topicへ通知する。
+    # TreatMissingData: notBreaching（呼び出し自体が無い=メトリクス無しの期間は
+    # エラーも無いとみなし正常とする）。ユーザー操作駆動のAPIで常時呼び出しが
+    # あるとは限らないため、ops-monitoring-pattern.md本来の「無呼び出し検知」
+    # （TreatMissingData: breaching）ではなく「エラー検知」パターンを採用する
+    OpsAlertTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-ops-alert
+
+    GetPlayersErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-getPlayers-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-getPlayers
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    StartMatchErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-startMatch-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-startMatch
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    GetMatchesErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-getMatches-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-getMatches
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    GetMatchResultErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-getMatchResult-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-getMatchResult
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    GetLeaderboardErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-getLeaderboard-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-getLeaderboard
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    GetAiMoveErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-getAiMove-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-getAiMove
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    SaveMatchErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-saveMatch-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-saveMatch
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
+
+    GenerateCommentaryErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-generateCommentary-errors
+        Namespace: AWS/Lambda
+        MetricName: Errors
+        Dimensions:
+          - Name: FunctionName
+            Value: ${self:service}-${sls:stage}-generateCommentary
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 1
+        Threshold: 0
+        ComparisonOperator: GreaterThanThreshold
+        TreatMissingData: notBreaching
+        AlarmActions:
+          - !Ref OpsAlertTopic
