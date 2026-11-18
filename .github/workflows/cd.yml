@@ -64,6 +64,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # backend/配下にdev-standards/shared/lambda/配下を指すsymlinkがあり、
+          # submoduleが無いとzipへ実体が入らず全関数が起動失敗する（#515）。
+          submodules: true
       - name: 🚀 Deploy Backend (Serverless Framework)
         uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.141.0
         with:
