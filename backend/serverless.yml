@@ -19,6 +19,7 @@ provider:
             - dynamodb:PutItem
             - dynamodb:Query
             - dynamodb:Scan
+            - dynamodb:UpdateItem
           Resource:
             - !GetAtt MatchesTable.Arn
             - !GetAtt PlayersTable.Arn

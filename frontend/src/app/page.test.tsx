@@ -1739,7 +1739,8 @@ describe('Home Component', () => {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
     });
 
-    render(<HomeContent />);
+    // StrictModeはupdater関数を二重実行する。保存APIが決着時に1回だけ呼ばれることも確認する(#520)
+    render(<React.StrictMode><HomeContent /></React.StrictMode>);
     fireEvent.click(screen.getByRole('button', { name: /人間対AI/ }));
     await waitFor(() => {
       expect(screen.getAllByText('対戦開始')[0]).toBeDefined();
@@ -1779,6 +1780,9 @@ describe('Home Component', () => {
     await waitFor(() => {
       expect(screen.getAllByText('WINNER')[0]).toBeDefined();
     });
+
+    const saveCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([u]) => u.toString().includes('save-match'));
+    expect(saveCalls).toHaveLength(1);
 
     // 埋め込みスコアボードが表示されている
     expect(screen.getByText('★ ELECTRIC ARENA SCOREBOARD ★')).toBeDefined();

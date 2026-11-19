@@ -1771,20 +1771,19 @@ export function HomeContent() {
     if (!matchResult || !tempNextState) return;
     const nextState = tempNextState;
     const isGameOver = nextState.winner ? true : false;
-    setMatchResult(prev => {
-      if (!prev) return prev;
-      const newResult = {
-        ...prev,
-        winner: nextState.winner,
-        scores: nextState.newScores,
-        shocks: nextState.newShocks,
-        logs: [...prev.logs, nextState.newLog]
-      };
-      if (nextState.winner) {
-        saveMatchToBackend(newResult);
-      }
-      return newResult;
-    });
+    // updater関数は純粋でなければならない(StrictMode等で二重実行されうる)ため、
+    // 保存APIの呼び出しはupdaterの外で1回だけ行う(#520)。
+    const newResult = {
+      ...matchResult,
+      winner: nextState.winner,
+      scores: nextState.newScores,
+      shocks: nextState.newShocks,
+      logs: [...matchResult.logs, nextState.newLog]
+    };
+    setMatchResult(newResult);
+    if (nextState.winner) {
+      saveMatchToBackend(newResult);
+    }
     // 各種ステートをリセット
     setPvpStage('LOBBY_START');
     setHighlightedChair(null);
@@ -1898,23 +1897,22 @@ export function HomeContent() {
   };
 
   const handleGameConfirmTurn = () => {
-    if (!tempNextState) return;
+    if (!tempNextState || !matchResult) return;
     const nextState = tempNextState;
     const isGameOver = nextState.winner ? true : false;
-    setMatchResult(prev => {
-      if (!prev) return prev;
-      const newResult = {
-        ...prev,
-        winner: nextState.winner,
-        scores: nextState.newScores,
-        shocks: nextState.newShocks,
-        logs: [...prev.logs, nextState.newLog]
-      };
-      if (nextState.winner) {
-        saveMatchToBackend(newResult);
-      }
-      return newResult;
-    });
+    // updater関数は純粋でなければならない(StrictMode等で二重実行されうる)ため、
+    // 保存APIの呼び出しはupdaterの外で1回だけ行う(#520)。
+    const newResult = {
+      ...matchResult,
+      winner: nextState.winner,
+      scores: nextState.newScores,
+      shocks: nextState.newShocks,
+      logs: [...matchResult.logs, nextState.newLog]
+    };
+    setMatchResult(newResult);
+    if (nextState.winner) {
+      saveMatchToBackend(newResult);
+    }
     // 各種ステートをリセット
     setGameStep('IDLE');
     setHighlightedChair(null);

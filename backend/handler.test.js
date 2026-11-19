@@ -62,7 +62,35 @@ function handleMockUpdateCommand(tableName, store, command) {
   return {};
 }
 
+// TransactWriteCommandをエミュレートする。いずれかのPutの条件が満たされなければ
+// TransactionCanceledExceptionを投げ、何も適用しない(全か無か)。
+function handleMockTransactWriteCommand(command) {
+  const items = command.input.TransactItems;
+  for (const item of items) {
+    if (!item.Put) continue;
+    const keyName = tableKeyName[item.Put.TableName];
+    const store = dynamoTables[item.Put.TableName];
+    if (item.Put.ConditionExpression === `attribute_not_exists(${keyName})` && store.has(item.Put.Item[keyName])) {
+      throw Object.assign(new Error('TransactionCanceledException'), {
+        name: 'TransactionCanceledException',
+        CancellationReasons: [{ Code: 'ConditionalCheckFailed' }],
+      });
+    }
+  }
+  for (const item of items) {
+    if (item.Put) {
+      handleMockPutCommand(item.Put.TableName, dynamoTables[item.Put.TableName], { input: item.Put });
+    } else if (item.Update) {
+      handleMockUpdateCommand(item.Update.TableName, dynamoTables[item.Update.TableName], { input: item.Update });
+    }
+  }
+  return {};
+}
+
 function defaultDynamoSend(command) {
+  if (command.constructor.name === 'TransactWriteCommand') {
+    return handleMockTransactWriteCommand(command);
+  }
   const tableName = command.input.TableName;
   const store = dynamoTables[tableName];
   if (!store) return {};
@@ -527,9 +555,10 @@ describe('Backend Handler Specification Tests', () => {
     expect(resSuccess.statusCode).toBe(200);
 
     // 試合終了後のスコアボードがDynamoDBへ記録されていること
-    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
-    expect(putCommand.input.TableName).toBe('test-matches-table');
-    expect(putCommand.input.Item.matchId).toBe('test-match-id');
+    // (人間対AIは、試合のPutとAIレーティングのUpdateを1つのトランザクションで書く)
+    const txCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(txCommand.input.TransactItems[0].Put.TableName).toBe('test-matches-table');
+    expect(txCommand.input.TransactItems[0].Put.Item.matchId).toBe('test-match-id');
 
     // AI vs Human
     const resSuccess2 = await saveMatch({
@@ -736,11 +765,12 @@ describe('Backend Handler Specification Tests', () => {
       }),
     });
 
-    const playerUpdateCommand = dynamoSendMock.mock.calls
+    const txCommand = dynamoSendMock.mock.calls
       .map(([command]) => command)
-      .find((command) => command.input.TableName === 'test-players-table' && command.constructor.name === 'UpdateCommand');
-    expect(playerUpdateCommand).toBeDefined();
-    expect(playerUpdateCommand.input.Key.playerId).toBe('ai-okano');
+      .find((command) => command.constructor.name === 'TransactWriteCommand');
+    const playerUpdate = txCommand.input.TransactItems.find((item) => item.Update);
+    expect(playerUpdate.Update.TableName).toBe('test-players-table');
+    expect(playerUpdate.Update.Key.playerId).toBe('ai-okano');
   });
 
   it('returns a signed aiRatingDiff from the AI\'s perspective so the frontend can show before/after rating without guessing the sign', async () => {
@@ -844,6 +874,68 @@ describe('Backend Handler Specification Tests', () => {
     expect(resultBody.match.winnerId).toBe('ai-okano');
   });
 
+  it('does not add the AI rating twice when the same matchId is re-sent (idempotent save, #520)', async () => {
+    const payload = {
+      matchId: 'test-idempotent',
+      player1Id: 'human',
+      player2Id: 'ai-nash',
+      winnerId: 'ai-nash',
+      scores: { p1: 0, p2: 40 },
+      shocks: { p1: 0, p2: 0 },
+      logs: [],
+    };
+    const before = await findPlayer('ai-nash');
+
+    const first = await saveMatch({ body: JSON.stringify(payload) });
+    const second = await saveMatch({ body: JSON.stringify(payload) });
+
+    expect(first.statusCode).toBe(200);
+    expect(JSON.parse(first.body).duplicate).toBeUndefined();
+    expect(second.statusCode).toBe(200);
+    const secondBody = JSON.parse(second.body);
+    expect(secondBody.duplicate).toBe(true);
+    expect(secondBody.match.aiRatingDiff).toBe(JSON.parse(first.body).match.aiRatingDiff);
+
+    const after = await findPlayer('ai-nash');
+    expect(after.matchCount).toBe(before.matchCount + 1);
+    expect(after.winCount).toBe(before.winCount + 1);
+  });
+
+  it('returns 500 and records nothing when the transactional write fails unexpectedly', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    dynamoSendMock.mockImplementation((command) => {
+      if (command.constructor.name === 'TransactWriteCommand') {
+        return Promise.reject(Object.assign(new Error('AccessDenied'), { name: 'AccessDeniedException' }));
+      }
+      return Promise.resolve(defaultDynamoSend(command));
+    });
+
+    const res = await saveMatch({
+      body: JSON.stringify({
+        matchId: 'test-tx-failure',
+        player1Id: 'human',
+        player2Id: 'ai-okano',
+        winnerId: 'human',
+        logs: [],
+      }),
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(dynamoTables['test-matches-table'].has('test-tx-failure')).toBe(false);
+    errorSpy.mockRestore();
+  });
+
+  it('does not rate-update PvP matches and treats a re-sent PvP matchId as a duplicate', async () => {
+    const payload = { matchId: 'test-pvp-dup', player1Id: 'p1', player2Id: 'p2', winnerId: 'p1', mode: 'pvp', logs: [] };
+
+    const first = await saveMatch({ body: JSON.stringify(payload) });
+    const second = await saveMatch({ body: JSON.stringify(payload) });
+
+    expect(first.statusCode).toBe(200);
+    expect(JSON.parse(second.body).duplicate).toBe(true);
+    expect(dynamoSendMock.mock.calls.some(([c]) => c.constructor.name === 'TransactWriteCommand')).toBe(false);
+  });
+
   it('should read players/matches from DynamoDB when data is already present', async () => {
     const dbPlayer = {
       playerId: 'ai-okano',
@@ -889,8 +981,8 @@ describe('Backend Handler Specification Tests', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const putCommand = dynamoSendMock.mock.calls.at(-1)[0];
-    expect(putCommand.input.Item.matchId).toBe('test-missing-optional-fields');
+    const txCommand = dynamoSendMock.mock.calls.at(-1)[0];
+    expect(txCommand.input.TransactItems[0].Put.Item.matchId).toBe('test-missing-optional-fields');
   });
 
   it('should still return the match result even if recording to DynamoDB fails', async () => {
