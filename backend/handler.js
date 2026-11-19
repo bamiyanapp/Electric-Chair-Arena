@@ -3,7 +3,7 @@
 const { randomUUID } = require('crypto');
 const { GAME_RULES, getNumToSet } = require('./rules.js');
 const { getNashMove } = require('./nash.js');
-const { PutCommand, GetCommand, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { PutCommand, GetCommand, ScanCommand, UpdateCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
 const { initialPlayers, initialMatches } = require('./seedData.js');
 const { buildClientErrorLogPayload } = require('./clientErrorReporting.js');
@@ -68,31 +68,37 @@ async function recordMatchToDynamo(match) {
 // DynamoDB側でアトミックに反映されるようにする。項目がまだ存在しない
 // (初回保存)場合はif_not_existsのフォールバック値としてplayer(=getPlayerById等
 // が返すシード初期値)の値を使う。
+// プレイヤーのレーティング更新用UpdateCommandの入力を組み立てる。
+// 単独のUpdateと、saveMatchのトランザクションの両方で使う。
+function buildPlayerRatingUpdateInput(player, ratingDiff, isWin) {
+  return {
+    TableName: PLAYERS_TABLE,
+    Key: { playerId: player.playerId },
+    UpdateExpression:
+      'SET rating = if_not_exists(rating, :seedRating) + :ratingDiff, ' +
+      'matchCount = if_not_exists(matchCount, :seedMatchCount) + :one, ' +
+      'winCount = if_not_exists(winCount, :seedWinCount) + :winInc, ' +
+      '#name = if_not_exists(#name, :name), ' +
+      '#type = if_not_exists(#type, :type), ' +
+      'updatedAt = :updatedAt',
+    ExpressionAttributeNames: { '#name': 'name', '#type': 'type' },
+    ExpressionAttributeValues: {
+      ':seedRating': player.rating,
+      ':ratingDiff': ratingDiff,
+      ':seedMatchCount': player.matchCount,
+      ':seedWinCount': player.winCount,
+      ':one': 1,
+      ':winInc': isWin ? 1 : 0,
+      ':name': player.name,
+      ':type': player.type,
+      ':updatedAt': new Date().toISOString(),
+    },
+  };
+}
+
 async function applyPlayerRatingUpdate(player, ratingDiff, isWin) {
   try {
-    await docClient.send(new UpdateCommand({
-      TableName: PLAYERS_TABLE,
-      Key: { playerId: player.playerId },
-      UpdateExpression:
-        'SET rating = if_not_exists(rating, :seedRating) + :ratingDiff, ' +
-        'matchCount = if_not_exists(matchCount, :seedMatchCount) + :one, ' +
-        'winCount = if_not_exists(winCount, :seedWinCount) + :winInc, ' +
-        '#name = if_not_exists(#name, :name), ' +
-        '#type = if_not_exists(#type, :type), ' +
-        'updatedAt = :updatedAt',
-      ExpressionAttributeNames: { '#name': 'name', '#type': 'type' },
-      ExpressionAttributeValues: {
-        ':seedRating': player.rating,
-        ':ratingDiff': ratingDiff,
-        ':seedMatchCount': player.matchCount,
-        ':seedWinCount': player.winCount,
-        ':one': 1,
-        ':winInc': isWin ? 1 : 0,
-        ':name': player.name,
-        ':type': player.type,
-        ':updatedAt': new Date().toISOString(),
-      },
-    }));
+    await docClient.send(new UpdateCommand(buildPlayerRatingUpdateInput(player, ratingDiff, isWin)));
   } catch (error) {
     console.error('Failed to update player %s rating in DynamoDB:', player.playerId, error);
   }
@@ -921,14 +927,14 @@ function validateSaveMatchRequest(body) {
   );
 }
 
-// 人間対AI戦の場合のみAI側のレーティングを更新しDBへ反映する(PVP等、
-// 両者が人間の疑似プレイヤーの場合は更新自体が発生せずratingDiff: 0を返す)。
-// 戻り値のratingDiff/aiRatingDiffはいずれもAI視点の符号付き変動量。
-async function applyAiRatingUpdateForSaveMatch(player1Id, player2Id, winnerId, p1, p2) {
+// 人間対AI戦の場合のみ、AI側のレーティング変動を計画する(DBへは書かない)。
+// PVP等、両者が人間の疑似プレイヤーの場合はnullを返す。
+// ratingDiffはAI視点の符号付き変動量。
+function planAiRatingUpdate(player1Id, player2Id, winnerId, p1, p2) {
   const isPlayer1Human = isHumanPseudoPlayerId(player1Id);
   const isPlayer2Human = isHumanPseudoPlayerId(player2Id);
   if (isPlayer1Human === isPlayer2Human) {
-    return { ratingDiff: 0, aiRatingDiff: null };
+    return null;
   }
 
   const aiPlayer = isPlayer1Human ? p2 : p1;
@@ -944,16 +950,45 @@ async function applyAiRatingUpdateForSaveMatch(player1Id, player2Id, winnerId, p
   } else {
     actualAi = 0;
   }
+  // 同一AIへの別試合が同時に保存された場合、差分はわずかに古いレーティングから
+  // 計算される。ELOの性質上この誤差は許容する(加算自体はDB側でアトミック)。
   const ratingDiff = computeEloDiff(aiPlayer.rating, humanRating, actualAi);
+  return { aiPlayer, isAiWinner, ratingDiff };
+}
 
-  await applyPlayerRatingUpdate(aiPlayer, ratingDiff, isAiWinner);
+function isDuplicateMatchError(error) {
+  if (error && error.name === 'ConditionalCheckFailedException') return true;
+  return Boolean(
+    error && error.name === 'TransactionCanceledException' &&
+    Array.isArray(error.CancellationReasons) &&
+    error.CancellationReasons.some((r) => r && r.Code === 'ConditionalCheckFailed')
+  );
+}
 
-  aiPlayer.rating += ratingDiff;
-  aiPlayer.matchCount += 1;
-  if (isAiWinner) aiPlayer.winCount += 1;
-  aiPlayer.updatedAt = new Date().toISOString();
-
-  return { ratingDiff, aiRatingDiff: ratingDiff };
+// 試合の記録とAIレーティング更新を、常に両方成功するか両方失敗するかにする(#520)。
+// 同じmatchIdの再送ではレーティングを再加算しない。重複ならfalseを返す。
+async function persistSavedMatch(newMatch, update) {
+  const putItem = {
+    TableName: MATCHES_TABLE,
+    Item: newMatch,
+    ConditionExpression: 'attribute_not_exists(matchId)',
+  };
+  try {
+    if (update) {
+      await docClient.send(new TransactWriteCommand({
+        TransactItems: [
+          { Put: putItem },
+          { Update: buildPlayerRatingUpdateInput(update.aiPlayer, update.ratingDiff, update.isAiWinner) },
+        ],
+      }));
+    } else {
+      await docClient.send(new PutCommand(putItem));
+    }
+    return true;
+  } catch (error) {
+    if (isDuplicateMatchError(error)) return false;
+    throw error;
+  }
 }
 
 module.exports.saveMatch = async (event) => {
@@ -987,7 +1022,9 @@ module.exports.saveMatch = async (event) => {
       };
     }
 
-    const { ratingDiff, aiRatingDiff } = await applyAiRatingUpdateForSaveMatch(player1Id, player2Id, winnerId, p1, p2);
+    const update = planAiRatingUpdate(player1Id, player2Id, winnerId, p1, p2);
+    const ratingDiff = update ? update.ratingDiff : 0;
+    const aiRatingDiff = update ? update.ratingDiff : null;
 
     const newMatch = {
       matchId,
@@ -1003,7 +1040,16 @@ module.exports.saveMatch = async (event) => {
       createdAt: new Date().toISOString(),
     };
 
-    await recordMatchToDynamo(newMatch);
+    const isNew = await persistSavedMatch(newMatch, update);
+    if (!isNew) {
+      // 再送された同一matchId。レーティングは変更せず、保存済みの結果を返す。
+      const existing = await getMatchById(matchId);
+      return {
+        statusCode: 200,
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ success: true, match: existing || newMatch, duplicate: true }),
+      };
+    }
 
     return {
       statusCode: 200,
