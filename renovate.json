@@ -9,6 +9,23 @@
       "matchPackageNames": ["serverless"],
       "allowedVersions": "<4.0.0",
       "description": "Serverless Framework v4以降はCLI起動時にSaaSへのサインインが必須になりCIでのデプロイが失敗するため、サインイン不要なv3系に固定する"
+    },
+    {
+      "matchManagers": ["github-actions", "custom.regex"],
+      "matchPackageNames": ["bamiyanapp/dev-standards"],
+      "groupName": "dev-standards workflows",
+      "description": "uses:行とself_ref:を必ず同じPRで更新し、バージョンのずれを防ぐ（#519）"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "self_refはuses:行と同じdev-standardsバージョンを指すべきだが、Renovateのgithub-actionsマネージャーはプレーンな文字列入力であるself_ref:を検知しない。正規表現で明示的に検知対象へ加える",
+      "managerFilePatterns": ["^\\.github/workflows/.*\\.yml$"],
+      "matchStrings": ["self_ref: v(?<currentValue>[\\d.]+)"],
+      "depNameTemplate": "bamiyanapp/dev-standards",
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^v(?<version>.*)$"
     }
   ]
 }
