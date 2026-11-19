@@ -87,5 +87,8 @@ jobs:
         working-directory: backend
         run: node seed.js
         env:
+          # Lambda上と違いCDのstepにはリージョンが自動設定されない（#518）。
+          # backend/serverless.ymlのprovider.regionと同じ値にする。
+          AWS_REGION: ap-northeast-1
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
