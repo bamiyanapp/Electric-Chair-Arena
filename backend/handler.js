@@ -2,7 +2,6 @@
 
 const { randomUUID } = require('crypto');
 const { GAME_RULES, getNumToSet } = require('./rules.js');
-const { GoogleGenAI } = require('@google/genai');
 const { getNashMove } = require('./nash.js');
 const { PutCommand, GetCommand, ScanCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { docClient, MATCHES_TABLE, PLAYERS_TABLE } = require('./dynamoClient.js');
@@ -805,14 +804,17 @@ module.exports.generateCommentary = async (event) => {
       };
     }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
-
     const prompt = `あなたは「ビリビリ椅子取りゲーム」の実況解説者です。
 現在のゲームの状況: ${JSON.stringify(gameState)}
 直前のアクション: ${JSON.stringify(action)}
 この状況を踏まえて、熱く短く（1〜2文程度で）実況解説をしてください。`;
 
     try {
+      // npm workspacesでは依存が巻き上げられ、デプロイzipに含まれない場合がある。
+      // トップレベルでrequireするとhandler全体が起動失敗するため、実況生成の
+      // 内部でのみ読み込み、失敗時はモック実況へ縮退させる。
+      const { GoogleGenAI } = require('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
       const timeout = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Gemini API timeout')), COMMENTARY_TIMEOUT_MS);
       });

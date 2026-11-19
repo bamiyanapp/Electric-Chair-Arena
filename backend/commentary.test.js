@@ -49,6 +49,35 @@ afterEach(() => {
 });
 
 describe('generateCommentary with a mocked Gemini client', () => {
+  it('falls back to mock commentary when @google/genai cannot be loaded', async () => {
+    // npm workspacesの巻き上げでデプロイzipに依存が含まれない場合を再現する
+    const original = Module._cache[genaiPath];
+    delete Module._cache[genaiPath];
+    const originalResolve = Module._resolveFilename;
+    Module._resolveFilename = function (request, ...rest) {
+      if (request === '@google/genai') {
+        throw Object.assign(new Error("Cannot find module '@google/genai'"), { code: 'MODULE_NOT_FOUND' });
+      }
+      return originalResolve.call(this, request, ...rest);
+    };
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const originalEnv = process.env.GEMINI_API;
+    process.env.GEMINI_API = 'dummy-key';
+    try {
+      const res = await generateCommentary({
+        body: JSON.stringify({ gameState: {}, action: { chosenChair: 3 } })
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).commentary).toContain('3番の椅子');
+    } finally {
+      Module._resolveFilename = originalResolve;
+      Module._cache[genaiPath] = original;
+      errorSpy.mockRestore();
+      if (originalEnv === undefined) delete process.env.GEMINI_API;
+      else process.env.GEMINI_API = originalEnv;
+    }
+  });
+
   it('returns the Gemini response text when the API call succeeds', async () => {
     currentGenerateContent = async () => ({ text: '「すごい試合になっています！」' });
 
