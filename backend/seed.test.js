@@ -44,12 +44,18 @@ describe('seed script', () => {
     const conditionalError = Object.assign(new Error('exists'), { name: 'ConditionalCheckFailedException' });
     dynamoSendMock.mockRejectedValueOnce(conditionalError);
 
-    await expect(seedItem('test-players-table', initialPlayers[0], 'playerId')).resolves.toBeUndefined();
+    await expect(seedItem('test-players-table', initialPlayers[0], 'playerId')).resolves.toBe(true);
   });
 
-  it('logs (but does not throw) when a non-conditional error occurs', async () => {
+  it('returns false (without throwing) when a non-conditional error occurs', async () => {
     dynamoSendMock.mockRejectedValueOnce(new Error('DynamoDB unavailable'));
 
-    await expect(seedItem('test-players-table', initialPlayers[0], 'playerId')).resolves.toBeUndefined();
+    await expect(seedItem('test-players-table', initialPlayers[0], 'playerId')).resolves.toBe(false);
+  });
+
+  it('makes seed() fail when any item fails with an unexpected error', async () => {
+    dynamoSendMock.mockRejectedValueOnce(new Error('Region is missing'));
+
+    await expect(seed()).rejects.toThrow('Seeding failed for 1 item(s).');
   });
 });
