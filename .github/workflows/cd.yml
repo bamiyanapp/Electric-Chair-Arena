@@ -38,7 +38,7 @@ jobs:
           submodules: true
       - name: 🚀 Deploy to GitHub Pages
         id: deploy
-        uses: bamiyanapp/dev-standards/.github/actions/deploy-github-pages@v2.141.0
+        uses: bamiyanapp/dev-standards/.github/actions/deploy-github-pages@v2.170.0
         with:
           working-directory: frontend
           artifact-path: frontend/out
@@ -69,7 +69,7 @@ jobs:
           # submoduleが無いとzipへ実体が入らず全関数が起動失敗する（#515）。
           submodules: true
       - name: 🚀 Deploy Backend (Serverless Framework)
-        uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.141.0
+        uses: bamiyanapp/dev-standards/.github/actions/deploy-serverless@v2.170.0
         with:
           working-directory: backend
           node-version: '24'
